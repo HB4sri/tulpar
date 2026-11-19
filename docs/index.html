@@ -198,8 +198,9 @@
 
   /* Alt bilgi */
   footer { border-top: 1px solid var(--cizgi); padding: 18px 0 max(18px, env(safe-area-inset-bottom)); color: var(--soluk); font-size: .8125rem; }
-  footer .kap { display: flex; align-items: center; gap: 12px 20px; flex-wrap: wrap; }
-  .guvence { display: flex; align-items: center; gap: 8px; flex: 1 1 320px; }
+  /* Solda ad ve sürüm, ortada açıklama, sağda tema ve GitHub. Dar ekranda alt alta. */
+  footer .kap { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px 28px; }
+  .guvence { display: flex; align-items: center; justify-content: center; gap: 8px; text-align: center; max-width: 620px; justify-self: center; }
   .guvence svg { width: 16px; height: 16px; flex: none; color: var(--vurgu-yazi); align-self: flex-start; margin-top: .15em; }
   .guvence a { color: var(--vurgu-yazi); text-underline-offset: 2px; white-space: nowrap; }
   .tema { display: inline-flex; padding: 3px; border-radius: 10px; background: var(--yuzey); border: 1px solid var(--cizgi); }
@@ -208,15 +209,22 @@
   }
   .tema button[aria-checked="true"] { background: var(--vurgu-hafif); color: var(--yazi); }
   .tema button:active { transform: none; }
-  .surum { display: flex; align-items: center; gap: 10px; font-variant-numeric: tabular-nums; }
-  .surum a { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 8px; color: var(--soluk); }
-  .surum a:hover { color: var(--yazi); background: var(--yuzey); }
-  .surum a svg { width: 18px; height: 18px; }
+  .surum { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .sag { display: flex; align-items: center; gap: 12px; }
+  a.github { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 8px; color: var(--soluk); }
+  a.github:hover { color: var(--yazi); background: var(--yuzey); }
+  a.github svg { width: 18px; height: 18px; }
+  @media (max-width: 760px) {
+    footer .kap { grid-template-columns: minmax(0, 1fr); justify-items: start; }
+    .guvence { order: 1; justify-content: flex-start; text-align: left; justify-self: stretch; }
+    .sag { order: 2; }
+    .surum { order: 3; }
+  }
 
   /* Küçük görünen düğmelerin dokunma alanı en az 44 piksel: görünüş aynı, çevresinde görünmez pay. */
-  button.sil, .bilgi a.kaydet, #temizle, #adres-kopyala, .tema button, .surum a, button.bag { position: relative; }
+  button.sil, .bilgi a.kaydet, #temizle, #adres-kopyala, .tema button, a.github, button.bag { position: relative; }
   button.sil::after, .bilgi a.kaydet::after, #temizle::after, #adres-kopyala::after,
-  .tema button::after, .surum a::after, button.bag::after { content: ""; position: absolute; inset: -7px; }
+  .tema button::after, a.github::after, button.bag::after { content: ""; position: absolute; inset: -7px; }
   .tema button::after { inset: -7px 0; }
   .gorunmez { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
@@ -334,18 +342,18 @@
 
 <footer>
   <div class="kap">
+    <span id="surum" class="surum" data-surum="__SURUM_ADI__">Tulpar</span>
     <p class="guvence">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"/><path d="M9 12l2 2 4-4"/></svg>
-      <span>Dosyaların içeriği ve adı uçtan uca şifrelidir. Dosyalar n0'ın ücretsiz aktarma sunucularından geçer, hiçbir yerde saklanmaz. <a href="https://github.com/HB4sri/tulpar#dosyalar-nereden-geçer" target="_blank" rel="noopener noreferrer">Ayrıntılar</a></span>
+      <span>Tulpar ücretsiz ve reklamsız, kişisel bir projedir. Dosyalar uçtan uca şifreli olarak n0'ın ücretsiz aktarma sunucularından geçer ve hiçbir yerde saklanmaz. <a href="https://github.com/HB4sri/tulpar#dosyalar-nereden-geçer" target="_blank" rel="noopener noreferrer">Ayrıntılar</a></span>
     </p>
-    <div class="tema" role="radiogroup" aria-label="Tema">
-      <button role="radio" aria-checked="true" data-tema-sec="sistem">Sistem</button>
-      <button role="radio" aria-checked="false" data-tema-sec="acik">Açık</button>
-      <button role="radio" aria-checked="false" data-tema-sec="koyu">Koyu</button>
-    </div>
-    <div class="surum">
-      <span id="surum" data-surum="__SURUM_ADI__">© 2026 Tulpar</span>
-      <a href="https://github.com/HB4sri/tulpar" target="_blank" rel="noopener noreferrer" aria-label="Kaynak kodu GitHub'da" title="Kaynak kodu GitHub'da">
+    <div class="sag">
+      <div class="tema" role="radiogroup" aria-label="Tema">
+        <button role="radio" aria-checked="true" data-tema-sec="sistem">Sistem</button>
+        <button role="radio" aria-checked="false" data-tema-sec="acik">Açık</button>
+        <button role="radio" aria-checked="false" data-tema-sec="koyu">Koyu</button>
+      </div>
+      <a class="github" href="https://github.com/HB4sri/tulpar" target="_blank" rel="noopener noreferrer" aria-label="Kaynak kodu GitHub'da" title="Kaynak kodu GitHub'da">
         <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
       </a>
     </div>
