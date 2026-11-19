@@ -53,9 +53,36 @@ async function sunucu(adres) {
   return { durum: "kapali", detay: zamanAsimi ? "Yanıt gelmedi" : "Ulaşılamadı" };
 }
 
+// Aynı ağda doğrudan bağlantı (WebRTC) için tarayıcının yerel ağ adayı üretip üretmediği. STUN sunucusu
+// verilmez; hiçbir yere bağlanılmaz. Bu kontrol özete katılmaz: kapalıysa Tulpar aktarma sunucusunu kullanır.
+async function dogrudan() {
+  const kapali = { durum: "kapali", detay: "Bu tarayıcıda kapalı" };
+  if (typeof RTCPeerConnection !== "function") return kapali;
+  let pc;
+  try {
+    pc = new RTCPeerConnection({ iceServers: [] });
+    pc.createDataChannel("deneme");
+    let yerel = 0;
+    pc.onicecandidate = e => { if (e.candidate && / typ host/.test(e.candidate.candidate)) yerel++; };
+    await pc.setLocalDescription(await pc.createOffer());
+    await new Promise(coz => {
+      const zaman = setTimeout(coz, 3000);
+      pc.onicegatheringstatechange = () => {
+        if (pc.iceGatheringState === "complete") { clearTimeout(zaman); coz(); }
+      };
+    });
+    return yerel ? { durum: "acik", detay: "Mümkün" } : kapali;
+  } catch {
+    return kapali;
+  } finally {
+    pc?.close();
+  }
+}
+
 const KONTROLLER = [
   { ad: "Tarayıcı", tur: "tarayici", calis: tarayici },
   ...SUNUCULAR.map(([bolge, adres]) => ({ ad: `Aktarma sunucusu: ${bolge}`, tur: "sunucu", calis: () => sunucu(adres) })),
+  { ad: "Doğrudan bağlantı (aynı ağ)", tur: "dogrudan", calis: dogrudan },
 ];
 
 let sonuclar = [];

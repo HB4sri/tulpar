@@ -97,7 +97,7 @@ button.ikincil:hover { border-color: var(--soluk); }
 /* Bağlıyken tek sütun: sayfanın ortasında dar bir sütun. */
 main .kap:has(> #paylasim:not([hidden])) { max-width: 760px; }
 #dogrulama { padding: 18px 20px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; }
-#dogrulama .etiket { width: 100%; }
+#dogrulama .etiket, #yol { width: 100%; }
 #dogrulama-kodu { font: 600 2rem/1.1 ui-monospace, "SF Mono", Consolas, monospace; letter-spacing: .08em; font-variant-numeric: tabular-nums; }
 
 /* Onay */

@@ -20,7 +20,7 @@ Tulpar ücretsiz ve reklamsız, kişisel bir projedir. Ticari bir hizmet değild
 
 ## Dosyalar nereden geçer?
 
-Tarayıcılar birbirine doğrudan bağlanamaz. Bu yüzden iki cihaz da internetteki bir **aktarma
+Tarayıcılar farklı ağlardaki cihazlara doğrudan bağlanamaz. Bu yüzden iki cihaz da internetteki bir **aktarma
 sunucusuna** (İngilizcesi *relay*) bağlanır; şifreli paketler bu sunucunun üzerinden karşı cihaza
 geçer. Aktarma sunucusu zarfı taşıyan ama açamayan bir postane gibidir: Dosyanın içeriğini ve adını
 okuyamaz, dosyaları saklamaz.
@@ -31,7 +31,12 @@ aktarma sunucularını kullanır. n0 bu sunucuları ücretsiz "Community" planı
 için uygun olduğunu yazar. Ticari ölçekteki kullanım için ücretli sunucularını ya da kişinin kendi
 sunucusunu önerir. Bu sunucular için çalışma süresi garantisi yoktur ve hız sınırlıdır.
 
-- **Hız:** Ölçülen hız saniyede yaklaşık 0,4 MB'dir; 10 MB'lik bir dosya yaklaşık 30 saniyede
+İki cihaz aynı ağdaysa (ör. evdeki Wi-Fi) Tulpar bağlandıktan sonra doğrudan bağlantı da dener.
+Kurulursa dosyalar aktarma sunucusuna uğramadan, ağın hızında gider. Kurulamazsa (farklı ağlar,
+misafir ağları, cihazları birbirinden ayıran ağlar) aktarma sunucusu kullanılmaya devam eder.
+Ekranda hangi yolun kullanıldığı yazar.
+
+- **Hız:** Aktarma sunucusunda ölçülen hız saniyede yaklaşık 0,4 MB'dir; 10 MB'lik bir dosya yaklaşık 30 saniyede
   gider. n0 hız sınırlarını yayımlamaz, gerektiğinde değiştirir.
 - **Kullanım büyürse:** Tulpar, n0'ın ücretli aktarma sunucularına ya da kendi aktarma sunucusuna
   geçirilir. Koşullar değişirse bu bölüm de güncellenir.
@@ -50,6 +55,9 @@ Sonuçları "Sonuçları kopyala" düğmesiyle alabilirsiniz.
   QUIC/TLS 1.3 kullanır, iki taraf birbirini Ed25519 açık anahtarlarıyla doğrular.
   Her bağlantıda yeni oturum anahtarı üretilir.
 - Aktarma sunucusu yalnızca şifreli paketleri taşır. Dosyalar hiçbir sunucuda saklanmaz.
+- Doğrudan bağlantı WebRTC ile kurulur ve DTLS ile şifrelenir. Kurulum bilgileri ve şifreleme
+  anahtarının parmak izi, kimliği zaten doğrulanmış Tulpar bağlantısı üzerinden değiştirilir; bu
+  yüzden araya kimse giremez. Başka bir şirketin sunucusu (STUN ya da TURN) kullanılmaz.
 - QR kod, bağlanılacak cihazın açık anahtarını ve tek kullanımlık 128 bitlik bir değer içerir.
   Değer kullanılınca ve 3 dakikada bir yenilenir. QR ile gelen yeni cihaz için her zaman onay
   sorulur; değeri bilmeyen tanımadık cihazların istekleri soru sorulmadan reddedilir.
@@ -69,6 +77,8 @@ Sonuçları "Sonuçları kopyala" düğmesiyle alabilirsiniz.
 - Sayfayı sunan Cloudflare (tulpar.page) ya da GitHub (yedek adres): sayfanın istenmesi (IP,
   zaman, tarayıcı). Adresteki `#` işaretinden sonraki kısım bu sunuculara gitmez.
 - Ağ yöneticisi ve internet sağlayıcısı: bağlanılan sunucu adları ve veri miktarı.
+- Eşleşilen cihaz: doğrudan bağlantı denenirken bu cihazın yerel ağ adresi ya da tarayıcının
+  ürettiği geçici yerel adı.
 
 **Bir web uygulamasının sağlayamadıkları**
 

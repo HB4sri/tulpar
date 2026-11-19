@@ -368,24 +368,20 @@ async function dosyaGonder(dosya) {
   satir.yaz("Hazırlanıyor…");
   aktarimBasladi();
   try {
-    const gonderici = await oturum.baglanti.akis_ac();
-    await gonderici.yaz(cerceve({ ad: dosya.name, boyut: dosya.size }));
-
-    let gonderilen = 0;
-    satir.ilerle(0, true);
-    // Bir parça gönderilirken sıradaki diskten okunur.
-    let sonraki = dosya.slice(0, PARCA).arrayBuffer();
-    while (gonderilen < dosya.size) {
-      const parca = new Uint8Array(await sonraki);
-      const bas = gonderilen + parca.length;
-      if (bas < dosya.size) sonraki = dosya.slice(bas, bas + PARCA).arrayBuffer();
-      await gonderici.yaz(parca);
-      gonderilen = bas;
-      satir.ilerle(gonderilen);
+    if (oturum.dogrudan) {
+      try {
+        await dogrudanGonder(oturum.dogrudan, dosya, satir);
+        satir.tamam("Gönderildi");
+        return;
+      } catch (e) {
+        console.error(e);
+        if (e.reddedildi || mevcut !== oturum) throw e;
+        // Doğrudan yol koptu: bu oturumda bir daha denenmez, dosya aktarma sunucusundan gider.
+        dogrudanKapat(oturum, oturum.pc);
+        satir.yaz("Aktarma sunucusundan yeniden gönderiliyor…");
+      }
     }
-    satir.ilerle(gonderilen, true);
-    satir.yaz("Diğer cihazın alması bekleniyor…");
-    await gonderici.bitir();
+    await irohGonder(oturum, dosya, satir);
     satir.tamam("Gönderildi");
   } catch (e) {
     console.error(e);
@@ -393,6 +389,27 @@ async function dosyaGonder(dosya) {
   } finally {
     aktarimBitti();
   }
+}
+
+async function irohGonder(oturum, dosya, satir) {
+  const gonderici = await oturum.baglanti.akis_ac();
+  await gonderici.yaz(cerceve({ ad: dosya.name, boyut: dosya.size }));
+
+  let gonderilen = 0;
+  satir.ilerle(0, true);
+  // Bir parça gönderilirken sıradaki diskten okunur.
+  let sonraki = dosya.slice(0, PARCA).arrayBuffer();
+  while (gonderilen < dosya.size) {
+    const parca = new Uint8Array(await sonraki);
+    const bas = gonderilen + parca.length;
+    if (bas < dosya.size) sonraki = dosya.slice(bas, bas + PARCA).arrayBuffer();
+    await gonderici.yaz(parca);
+    gonderilen = bas;
+    satir.ilerle(gonderilen);
+  }
+  satir.ilerle(gonderilen, true);
+  satir.yaz("Diğer cihazın alması bekleniyor…");
+  await gonderici.bitir();
 }
 
 function dosyalariSirala(dosyalar) {
@@ -404,7 +421,7 @@ function dosyalariSirala(dosyalar) {
 
 async function tanitimGonder(baglanti, ek = {}) {
   const gonderici = await baglanti.akis_ac();
-  await gonderici.yaz(cerceve({ tip: "tanitim", ad: cihazAdi(), ...ek }));
+  await gonderici.yaz(cerceve({ tip: "tanitim", ad: cihazAdi(), dogrudan: DOGRUDAN_DESTEK ? 1 : 0, ...ek }));
   gonderici.bitir().catch(() => {});
 }
 
@@ -436,25 +453,7 @@ async function dosyaAl(alici, baslik, ilk, oturum) {
       satir.ilerle(alinan);
     }
     if (alinan !== boyut) throw new Error("Dosya eksik geldi");
-
-    // Tür her zaman ikili dosya: karşının verdiği tür (ör. text/html) sayfada açılıp çalışmasın.
-    const blob = new Blob(parcalar, { type: "application/octet-stream" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = ad;
-    a.textContent = "Kaydet";
-    a.className = "kaydet";
-    // Dosya kendiliğinden inmez; kullanıcı Kaydet'e basar. Kaydedildikten bir dakika sonra
-    // bellekteki kopya bırakılır.
-    kaydedilmemis.add(a);
-    a.addEventListener("click", () => {
-      kaydedilmemis.delete(a);
-      setTimeout(() => {
-        URL.revokeObjectURL(a.href);
-        a.replaceWith("Kaydedildi");
-      }, 60000);
-    }, { once: true });
-    satir.tamam("Alındı", a);
+    dosyaHazir(parcalar, ad, satir);
   } catch (e) {
     console.error(e);
     satir.hata("Aktarım yarıda kesildi");
@@ -463,12 +462,36 @@ async function dosyaAl(alici, baslik, ilk, oturum) {
   }
 }
 
+// Alınan parçalardan dosyayı oluşturur ve satıra Kaydet bağlantısını koyar.
+function dosyaHazir(parcalar, ad, satir) {
+  // Tür her zaman ikili dosya: karşının verdiği tür (ör. text/html) sayfada açılıp çalışmasın.
+  const blob = new Blob(parcalar, { type: "application/octet-stream" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = ad;
+  a.textContent = "Kaydet";
+  a.className = "kaydet";
+  // Dosya kendiliğinden inmez; kullanıcı Kaydet'e basar. Kaydedildikten bir dakika sonra
+  // bellekteki kopya bırakılır.
+  kaydedilmemis.add(a);
+  a.addEventListener("click", () => {
+    kaydedilmemis.delete(a);
+    setTimeout(() => {
+      URL.revokeObjectURL(a.href);
+      a.replaceWith("Kaydedildi");
+    }, 60000);
+  }, { once: true });
+  satir.tamam("Alındı", a);
+}
+
 async function almaDongusu(oturum) {
   for (;;) {
     const alici = await oturum.baglanti.akis_bekle();
     if (!alici) return;
     zamanAsimi(basligiOku(alici), TANITIM_SURESI).then(({ baslik, ilk }) => {
-      if (baslik.tip === "tanitim") {
+      if (baslik.tip === "rtc") {
+        rtcMesaji(oturum, baslik);
+      } else if (baslik.tip === "tanitim") {
         // Karşı taraf adını değiştirdi.
         oturum.ad = adDuzelt(baslik.ad);
         adlariGuncelle(oturum);
@@ -481,6 +504,228 @@ async function almaDongusu(oturum) {
       alici.iptal();
     });
   }
+}
+
+// --- Doğrudan bağlantı (WebRTC, yalnız aynı ağ) ---
+
+// Aktarma sunucusu üzerinden kurulmuş, kimliği doğrulanmış bağlantı sinyal kanalı olarak kullanılır:
+// iki taraf WebRTC tekliflerini (SDP) bu kanaldan değiştirir. SDP'deki DTLS parmak izi bu kanaldan
+// geldiği için doğrudan bağlantının arasına kimse giremez. STUN ya da TURN sunucusu verilmez: yalnız
+// aynı yerel ağdaki adresler denenir, başka bir şirketin sunucusuna bağlanılmaz. Kurulamazsa aktarma
+// sunucusu kullanılmaya devam eder. Teklifi bağlanan taraf yapar, kabul eden yanıtlar.
+const DOGRUDAN_DESTEK = typeof RTCPeerConnection === "function";
+const DOGRUDAN_SURESI = 15000;          // bu sürede kurulamazsa denemekten vazgeçilir
+const DOGRUDAN_PARCA = 64 * 1024;       // bütün tarayıcıların kabul ettiği ileti boyutu
+const DOGRUDAN_TAMPON = 8 * 1024 ** 2;  // gönderim tamponu bunu aşınca boşalması beklenir (Chrome 16 MB üstünü kabul etmez)
+
+function yolYaz(oturum) {
+  if (mevcut !== oturum) return;
+  $("yol").textContent = oturum.dogrudan ? "Aktarım yolu: Doğrudan (aynı ağ)" : "Aktarım yolu: Aktarma sunucusu";
+  $("yol").hidden = false;
+}
+
+function adaylarHazir(pc, ms = 3000) {
+  if (pc.iceGatheringState === "complete") return Promise.resolve();
+  return new Promise(coz => {
+    const zaman = setTimeout(coz, ms);
+    pc.addEventListener("icegatheringstatechange", () => {
+      if (pc.iceGatheringState === "complete") {
+        clearTimeout(zaman);
+        coz();
+      }
+    });
+  });
+}
+
+async function rtcGonder(oturum, mesaj) {
+  const gonderici = await oturum.baglanti.akis_ac();
+  await gonderici.yaz(cerceve({ tip: "rtc", ...mesaj }));
+  gonderici.bitir().catch(() => {});
+}
+
+function dogrudanKapat(oturum, pc) {
+  if (oturum.pc !== pc) return;
+  oturum.dogrudan = null;
+  pc.close();
+  yolYaz(oturum);
+}
+
+function rtcOlustur(oturum) {
+  const pc = new RTCPeerConnection({ iceServers: [] });
+  oturum.pc = pc;
+  // İki tarafta aynı kimlikle (0) açılan denetim kanalı; açıldığında doğrudan yol hazırdır.
+  const denetim = pc.createDataChannel("denetim", { negotiated: true, id: 0 });
+  denetim.onopen = () => {
+    if (oturum.pc !== pc) return;
+    oturum.dogrudan = pc;
+    yolYaz(oturum);
+  };
+  denetim.onclose = () => dogrudanKapat(oturum, pc);
+  pc.onconnectionstatechange = () => {
+    if (pc.connectionState === "failed" || pc.connectionState === "closed") dogrudanKapat(oturum, pc);
+  };
+  pc.ondatachannel = e => {
+    if (e.channel.label === "dosya") dogrudanAl(e.channel, oturum);
+    else e.channel.close();
+  };
+  oturum.baglanti.kapanis().then(() => dogrudanKapat(oturum, pc));
+  setTimeout(() => { if (!oturum.dogrudan) dogrudanKapat(oturum, pc); }, DOGRUDAN_SURESI);
+  return pc;
+}
+
+async function dogrudanBaslat(oturum) {
+  if (!DOGRUDAN_DESTEK || !oturum.karsiDogrudan || oturum.rol !== "teklif") return;
+  try {
+    const pc = rtcOlustur(oturum);
+    await pc.setLocalDescription(await pc.createOffer());
+    await adaylarHazir(pc);
+    await rtcGonder(oturum, { tur: "teklif", sdp: pc.localDescription.sdp });
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+async function rtcMesaji(oturum, baslik) {
+  if (!DOGRUDAN_DESTEK || typeof baslik.sdp !== "string") return;
+  try {
+    if (baslik.tur === "teklif" && oturum.rol === "yanit" && !oturum.pc) {
+      const pc = rtcOlustur(oturum);
+      await pc.setRemoteDescription({ type: "offer", sdp: baslik.sdp });
+      await pc.setLocalDescription(await pc.createAnswer());
+      await adaylarHazir(pc);
+      await rtcGonder(oturum, { tur: "yanit", sdp: pc.localDescription.sdp });
+    } else if (baslik.tur === "yanit" && oturum.rol === "teklif" && oturum.pc?.signalingState === "have-local-offer") {
+      await oturum.pc.setRemoteDescription({ type: "answer", sdp: baslik.sdp });
+    }
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+function kanalAcilsin(kanal, ms) {
+  return new Promise((coz, ret) => {
+    if (kanal.readyState === "open") return coz();
+    const zaman = setTimeout(() => ret(new Error("Doğrudan kanal açılmadı")), ms);
+    kanal.onopen = () => { clearTimeout(zaman); coz(); };
+    kanal.onclose = () => { clearTimeout(zaman); ret(new Error("Doğrudan kanal kapandı")); };
+  });
+}
+
+function tamponBosalsin(kanal) {
+  return new Promise(coz => {
+    const bitti = () => {
+      kanal.removeEventListener("bufferedamountlow", bitti);
+      kanal.removeEventListener("close", bitti);
+      coz();
+    };
+    kanal.addEventListener("bufferedamountlow", bitti);
+    kanal.addEventListener("close", bitti);
+  });
+}
+
+// Dosyayı doğrudan kanaldan gönderir: önce başlık (JSON), sonra parçalar; alıcı bütün dosyayı
+// aldığında "tamam", sınırı aşan dosyayı reddettiğinde "buyuk" yanıtı verir.
+async function dogrudanGonder(pc, dosya, satir) {
+  const kanal = pc.createDataChannel("dosya", { ordered: true });
+  kanal.binaryType = "arraybuffer";
+  kanal.bufferedAmountLowThreshold = DOGRUDAN_TAMPON / 2;
+  try {
+    await kanalAcilsin(kanal, 10000);
+    let kapandi = false;
+    const yanit = new Promise((coz, ret) => {
+      kanal.onmessage = e => {
+        if (e.data === "tamam") coz();
+        else if (e.data === "buyuk") ret(Object.assign(new Error("Diğer cihaz dosyayı almadı"), { reddedildi: true }));
+      };
+      kanal.onclose = () => {
+        kapandi = true;
+        ret(new Error("Doğrudan kanal kapandı"));
+      };
+    });
+    yanit.catch(() => {});
+    kanal.send(JSON.stringify({ ad: dosya.name, boyut: dosya.size }));
+    let gonderilen = 0;
+    satir.ilerle(0, true);
+    let sonraki = dosya.slice(0, PARCA).arrayBuffer();
+    while (gonderilen < dosya.size) {
+      const buyuk = new Uint8Array(await sonraki);
+      const bas = gonderilen + buyuk.length;
+      if (bas < dosya.size) sonraki = dosya.slice(bas, bas + PARCA).arrayBuffer();
+      for (let i = 0; i < buyuk.length; i += DOGRUDAN_PARCA) {
+        if (kapandi) await yanit;
+        if (kanal.bufferedAmount > DOGRUDAN_TAMPON) await tamponBosalsin(kanal);
+        if (kapandi) await yanit;
+        kanal.send(buyuk.subarray(i, i + DOGRUDAN_PARCA));
+      }
+      gonderilen = bas;
+      satir.ilerle(gonderilen);
+    }
+    satir.ilerle(gonderilen, true);
+    satir.yaz("Diğer cihazın alması bekleniyor…");
+    await zamanAsimi(yanit, 60000);
+  } finally {
+    kanal.onclose = null;
+    kanal.close();
+  }
+}
+
+// Doğrudan kanaldan gelen dosya. Denetimler aktarma sunucusundan gelen dosyayla aynıdır.
+function dogrudanAl(kanal, oturum) {
+  kanal.binaryType = "arraybuffer";
+  let satir = null;
+  let ad = "";
+  let boyut = 0;
+  let alinan = 0;
+  let bitti = false;
+  const parcalar = [];
+  const yarida = () => {
+    if (bitti) return;
+    bitti = true;
+    if (satir) {
+      satir.hata("Aktarım yarıda kesildi");
+      aktarimBitti();
+    }
+    kanal.close();
+  };
+  kanal.onmessage = e => {
+    if (bitti) return;
+    try {
+      if (!satir) {
+        if (typeof e.data !== "string" || e.data.length > BASLIK_SINIRI) throw new Error("Geçersiz başlık");
+        const baslik = JSON.parse(e.data);
+        if (typeof baslik !== "object" || baslik === null) throw new Error("Geçersiz başlık");
+        ad = dosyaAdiDuzelt(baslik.ad);
+        boyut = baslik.boyut;
+        if (!Number.isSafeInteger(boyut) || boyut < 0 || boyut > EN_BUYUK_DOSYA) {
+          bitti = true;
+          kanal.send("buyuk");
+          satirEkle("gelen", ad, 0, oturum).hata(`Alınmadı: Dosya ${boyutYaz(EN_BUYUK_DOSYA)} sınırını aşıyor`);
+          return;
+        }
+        satir = satirEkle("gelen", ad, boyut, oturum);
+        aktarimBasladi();
+        satir.ilerle(0, true);
+      } else {
+        if (typeof e.data === "string") throw new Error("Beklenmeyen ileti");
+        const parca = new Uint8Array(e.data);
+        alinan += parca.length;
+        if (alinan > boyut) throw new Error("Dosya beklenenden büyük geldi");
+        parcalar.push(parca);
+        satir.ilerle(alinan);
+      }
+      if (alinan === boyut) {
+        bitti = true;
+        satir.ilerle(alinan, true);
+        kanal.send("tamam");
+        dosyaHazir(parcalar, ad, satir);
+        aktarimBitti();
+      }
+    } catch (err) {
+      console.error(err);
+      yarida();
+    }
+  };
+  kanal.onclose = yarida;
 }
 
 // --- Kodlar ---
@@ -565,6 +810,8 @@ function baglandi(oturum) {
   $("dogrulama-kodu").textContent = dogrulamaKodu(oturum.baglanti);
   $("dogrulama").hidden = false;
   almaDongusu(oturum);
+  yolYaz(oturum);
+  dogrudanBaslat(oturum);
   oturum.baglanti.kapanis().then(neden => {
     // Kod uç noktası tek kullanımlıktır; onun üzerindeki oturum bitince kapatılır.
     if (oturum.dugum && oturum.dugum !== dugum) {
@@ -573,6 +820,7 @@ function baglandi(oturum) {
     }
     if (mevcut !== oturum) return;
     mevcut = null;
+    $("yol").hidden = true;
     const yeniden = oturum.yeniden ?? tumRelaylerle(`${oturum.karsiKimlik}~`);
     if (neden === GECIS || neden === YENILENDI) {
       // Karşı taraf aynı cihazdan yeni bir bağlantı kuruyor; kısa bir süre beklenir.
@@ -716,7 +964,7 @@ async function gelenBaglanti(gelen, d) {
       console.error(e);
       return;
     }
-    baglandi({ baglanti, ad, karsiKimlik, yeniden: null, dugum: d });
+    baglandi({ baglanti, ad, karsiKimlik, yeniden: null, dugum: d, rol: "yanit", karsiDogrudan: baslik.dogrudan === 1 });
   } finally {
     bekleyenBaglanti--;
   }
@@ -794,7 +1042,7 @@ async function kur(bilet, ms, sir, gecis = false) {
       durumYaz("Bağlanılıyor…");
       return kur(yeniden, ms, undefined, true);
     }
-    baglandi({ baglanti, ad: adDuzelt(sonuc.ad), karsiKimlik: baglanti.karsi_kimlik(), yeniden, dugum: null });
+    baglandi({ baglanti, ad: adDuzelt(sonuc.ad), karsiKimlik: baglanti.karsi_kimlik(), yeniden, dugum: null, rol: "teklif", karsiDogrudan: sonuc.dogrudan === 1 });
     return "tamam";
   } catch (e) {
     baglanti.kapat(KAPANDI);
