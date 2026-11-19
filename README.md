@@ -3,7 +3,7 @@
 Hesapsız, ücretsiz, uçtan uca şifreli dosya paylaşımı. Tarayıcıda çalışır, kurulum gerektirmez:
 **https://tulpar.page**
 
-Tulpar ücretsiz, reklamsız bir hobi projesidir. Ticari bir hizmet değildir.
+Tulpar ücretsiz ve reklamsız, kişisel bir projedir. Ticari bir hizmet değildir.
 
 ## Nasıl kullanılır
 
