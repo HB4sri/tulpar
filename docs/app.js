@@ -183,7 +183,8 @@ function boyutYaz(bayt) {
   const birimler = ["B", "KB", "MB", "GB"];
   let i = 0;
   while (bayt >= 1024 && i < birimler.length - 1) { bayt /= 1024; i++; }
-  return bayt.toLocaleString("tr-TR", { maximumFractionDigits: i ? 1 : 0 }) + " " + birimler[i];
+  // Sayı ile birim arasında bölünmeyen boşluk: satır sonunda "12,5" ile "MB" ayrılmasın.
+  return bayt.toLocaleString("tr-TR", { maximumFractionDigits: i ? 1 : 0 }) + "\u00a0" + birimler[i];
 }
 
 function gruplara(metin, uzunluk) {
@@ -267,16 +268,21 @@ function aktarimBitti() {
 
 // --- Aktarım listesi ---
 
+const svg = yol => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${yol}</svg>`;
+const SIMGE_GIDEN = svg('<path d="M12 19V5M6 11l6-6 6 6"/>');
+const SIMGE_GELEN = svg('<path d="M12 5v14M6 13l6 6 6-6"/>');
+const SIMGE_SIL = svg('<path d="M6 6l12 12M18 6L6 18"/>');
+
 // Satır karşı cihazın kimliğiyle işaretlenir; o cihaz adını değiştirince satırdaki ad da güncellenir.
 function satirEkle(yon, ad, boyut, oturum) {
   const li = document.createElement("li");
   li.innerHTML = `
-    <div class="ust"><span class="yon"></span><span class="ad"></span><span class="boyut"></span>
-      <button class="sil" title="Listeden sil" aria-label="Listeden sil">×</button></div>
+    <span class="yon">${yon === "giden" ? SIMGE_GIDEN : SIMGE_GELEN}</span>
+    <div class="ust-satir"><span class="ad"></span><span class="boyut"></span>
+      <button class="sil" title="Listeden kaldır" aria-label="Listeden kaldır">${SIMGE_SIL}</button></div>
     <div class="kim"></div>
     <div class="cubuk"><span></span></div>
     <div class="bilgi"><span class="metin"></span><span class="ek"></span></div>`;
-  li.querySelector(".yon").textContent = yon === "giden" ? "⬆️" : "⬇️";
   li.querySelector(".ad").textContent = ad;
   li.querySelector(".boyut").textContent = boyutYaz(boyut);
   const kim = li.querySelector(".kim");
@@ -299,7 +305,7 @@ function satirEkle(yon, ad, boyut, oturum) {
       if (!zorla && simdi - sonCizim < 200) return;
       sonCizim = simdi;
       const oran = boyut ? Math.min(1, bayt / boyut) : 1;
-      cubuk.style.width = (oran * 100).toFixed(1) + "%";
+      cubuk.style.transform = `scaleX(${oran.toFixed(3)})`;
       const sn = (simdi - t0) / 1000;
       metin.textContent = "%" + Math.floor(oran * 100);
       ek.textContent = sn > 0.5 ? boyutYaz(bayt / sn) + "/sn" : "";
@@ -307,7 +313,7 @@ function satirEkle(yon, ad, boyut, oturum) {
     yaz(m) { metin.textContent = m; },
     tamam(m, ekOge) {
       li.className = "tamam";
-      cubuk.style.width = "100%";
+      cubuk.style.transform = "scaleX(1)";
       metin.textContent = m;
       ek.replaceChildren(...(ekOge ? [ekOge] : []));
     },
@@ -325,7 +331,7 @@ async function dosyaGonder(dosya) {
   // Kuyruğa eklendiği andaki değil, gönderim anındaki bağlantı kullanılır.
   const oturum = mevcut;
   if (!oturum) {
-    satirEkle("giden", dosya.name, dosya.size, { ad: "—", karsiKimlik: "" }).hata("Bağlantı yok, gönderilmedi");
+    satirEkle("giden", dosya.name, dosya.size, { ad: "—", karsiKimlik: "" }).hata("Gönderilemedi: Bağlantı yok");
     return;
   }
   const satir = satirEkle("giden", dosya.name, dosya.size, oturum);
@@ -348,7 +354,7 @@ async function dosyaGonder(dosya) {
       satir.ilerle(gonderilen);
     }
     satir.ilerle(gonderilen, true);
-    satir.yaz("Karşı tarafın alması bekleniyor…");
+    satir.yaz("Diğer cihazın alması bekleniyor…");
     await gonderici.bitir();
     satir.tamam("Gönderildi");
   } catch (e) {
@@ -379,7 +385,7 @@ async function dosyaAl(alici, baslik, ilk, oturum) {
   const boyut = baslik.boyut;
   if (!Number.isSafeInteger(boyut) || boyut < 0 || boyut > EN_BUYUK_DOSYA) {
     alici.iptal();
-    satirEkle("gelen", ad, 0, oturum).hata(`Reddedildi: en çok ${boyutYaz(EN_BUYUK_DOSYA)} alınabilir`);
+    satirEkle("gelen", ad, 0, oturum).hata(`Alınmadı: Dosya ${boyutYaz(EN_BUYUK_DOSYA)} sınırını aşıyor`);
     return;
   }
   const satir = satirEkle("gelen", ad, boyut, oturum);
@@ -391,7 +397,7 @@ async function dosyaAl(alici, baslik, ilk, oturum) {
     for (;;) {
       if (alinan > boyut) {
         alici.iptal();
-        throw new Error("Beklenenden büyük geldi");
+        throw new Error("Dosya beklenenden büyük geldi");
       }
       const parca = await alici.oku();
       if (!parca) break;
@@ -399,7 +405,7 @@ async function dosyaAl(alici, baslik, ilk, oturum) {
       alinan += parca.length;
       satir.ilerle(alinan);
     }
-    if (alinan !== boyut) throw new Error("Eksik geldi");
+    if (alinan !== boyut) throw new Error("Dosya eksik geldi");
 
     // Tür her zaman ikili dosya: karşının verdiği tür (ör. text/html) sayfada açılıp çalışmasın.
     const blob = new Blob(parcalar, { type: "application/octet-stream" });
@@ -765,7 +771,7 @@ async function kur(bilet, ms, sir, gecis = false) {
   }
 }
 
-const MESGUL_METNI = "Diğer cihaz şu an başka bir isteği yanıtlıyor. Biraz sonra tekrar deneyin.";
+const MESGUL_METNI = "Diğer cihaz başka bir isteği yanıtlıyor. Biraz sonra tekrar deneyin.";
 
 function reddedildiYaz(bilet, hataMetni) {
   durumYaz("Bağlantı isteği reddedildi.", "hata");
@@ -858,12 +864,12 @@ async function kodGoster() {
   dugme.hidden = true;
   $("kod").textContent = gruplara(kod, 4);
   $("kod").hidden = $("kod-aciklama").hidden = false;
-  $("kod-aciklama").textContent = "Bu kodu diğer cihazda aşağıdaki alana yazın. 5 dakika geçerli, bir kez kullanılabilir.";
+  $("kod-aciklama").textContent = "Bu kodu diğer cihazdaki Tulpar sayfasına yazın. Kod 5 dakika geçerli ve bir kez kullanılabilir.";
   gelenleriBekle(yeni);
   kodZamani = setTimeout(() => {
     if (kodKullanildi) return;
     koduBirak();
-    $("kod-aciklama").textContent = "Kodun süresi doldu.";
+    $("kod-aciklama").textContent = "Kodun süresi doldu. Yeni kod için Kod göster düğmesine basın.";
     $("kod-aciklama").hidden = false;
   }, KOD_SURESI);
 }
@@ -894,13 +900,13 @@ async function kodlaBaglan(girilen) {
     return;
   }
   if ([...kod].some(h => !KOD_HARFLERI.includes(h))) {
-    durumYaz("Kodda 0, 1, I, L ve O bulunmaz. Kodu kontrol edin.", "hata");
+    durumYaz("Kodda 0, 1, I, L ve O yok. Kodu kontrol edin.", "hata");
     return;
   }
   durumYaz("Kod hazırlanıyor…");
   const bilet = Dugum.koddan_bilet(await kodTohumu(kod));
   $("baglan").hidden = true;
-  if (!(await bilettenBaglan(bilet, "Bağlanılamadı. Kodu doğru girdiniz mi? Diğer cihazdaki sayfa açık olmalı."))) {
+  if (!(await bilettenBaglan(bilet, "Bağlanılamadı. Kodu ve diğer cihazdaki sayfanın açık olduğunu kontrol edin."))) {
     $("baglan").hidden = false;
   }
 }
@@ -928,7 +934,7 @@ function biletAc(kisa) {
   const ikili = atob(anahtar.slice(0, 43).replace(/-/g, "+").replace(/_/g, "/"));
   if (ikili.length !== 32) throw new Error("Geçersiz bağlantı bilgisi");
   const harf = anahtar.slice(43);
-  if (harf && !RELAY_HARFLERI[harf]) throw new Error("Geçersiz relay bilgisi");
+  if (harf && !RELAY_HARFLERI[harf]) throw new Error("Geçersiz sunucu bilgisi");
   const kimlik = onaltilik([...ikili].map(c => c.charCodeAt(0)));
   return { bilet: `${kimlik}~${RELAY_HARFLERI[harf] ?? ""}`, sir: /^[A-Za-z0-9_-]{22}$/.test(sir) ? sir : "" };
 }
@@ -958,7 +964,7 @@ function qrGoster() {
   dugme.onclick = async () => {
     try {
       await navigator.clipboard.writeText(adres);
-      dugme.textContent = "Kopyalandı. Yalnız kendi cihazınıza gönderin.";
+      dugme.textContent = "Kopyalandı. Yalnızca kendi cihazınıza gönderin.";
     } catch {
       dugme.textContent = "Kopyalanamadı";
     }
@@ -988,18 +994,18 @@ async function basla() {
     durumYaz(wasmYok, "hata");
     return;
   }
-  durumYaz("Şifreleme çekirdeği yükleniyor…");
+  durumYaz("Şifreleme hazırlanıyor…");
   try {
     await init({ module_or_path: pkgAdresi("tulpar_cekirdek_bg.wasm") });
   } catch (e) {
     hataGoster(wasmYok, e);
     return;
   }
-  durumYaz("Relay sunucusuna bağlanılıyor…");
+  durumYaz("Aktarma sunucusuna bağlanılıyor…");
   try {
     dugum = await zamanAsimi(Dugum.baslat(sekmeAnahtari()), BASLAMA_SURESI);
   } catch (e) {
-    hataGoster("Relay sunucusuna ulaşılamadı. Sayfayı yenileyip tekrar deneyin.", e);
+    hataGoster("Aktarma sunucusuna ulaşılamadı. Sayfayı yenileyip tekrar deneyin.", e);
     return;
   }
   // Her sayfa gelen bağlantıları dinler; böylece bağlantı kopunca iki taraf da yeniden bağlanabilir.
@@ -1018,7 +1024,7 @@ async function basla() {
     okunamadi = true;
   }
   if (gelen) {
-    const tamam = await bilettenBaglan(gelen.bilet, "Bağlanılamadı. Diğer cihazdaki sayfa açık mı? Kapandıysa yeni kodu okutun.", gelen.sir);
+    const tamam = await bilettenBaglan(gelen.bilet, "Bağlanılamadı. Diğer cihazdaki sayfa açık mı? Kapandıysa yeni QR kodu okutun.", gelen.sir);
     if (tamam) return;
     if (gelen.kaynak === "adres") {
       // QR ile açılış başarısız: "Yeniden bağlan" kalır, kodla bağlanma da seçilebilsin.
@@ -1031,7 +1037,7 @@ async function basla() {
   }
   $("baglan").hidden = false;
   if (okunamadi) {
-    durumYaz("QR kodundaki bağlantı bilgisi okunamadı. Kodu yeniden okutun ya da kodla bağlanın.", "hata");
+    durumYaz("QR koddaki bağlantı bilgisi okunamadı. QR kodu yeniden okutun ya da 8 karakterlik kodla bağlanın.", "hata");
   } else {
     durumYaz("Diğer cihazın bağlanması bekleniyor…");
   }
@@ -1120,5 +1126,24 @@ addEventListener("beforeunload", e => {
 // Sayfa kapanırken karşı taraf kopmayı beklemeden öğrensin. "kesildi" değil, çünkü
 // yenileme olabilir; karşı taraf yeniden bağlanmayı denesin.
 addEventListener("pagehide", () => mevcut?.baglanti.kapat(KAPANDI));
+
+// --- Adım göstergesi ve alt bilgi ---
+
+// Adım, görünen bölümlerden çıkarılır: onay sorusu açıksa 2, bağlıysa 3, değilse 1.
+function adimGuncelle() {
+  const adim = !$("paylasim").hidden ? 3 : !$("onay").hidden ? 2 : 1;
+  $("adimlar").querySelectorAll("li").forEach((li, i) => {
+    li.classList.toggle("etkin", i + 1 === adim);
+    li.classList.toggle("bitti", i + 1 < adim);
+    if (i + 1 === adim) li.setAttribute("aria-current", "step");
+    else li.removeAttribute("aria-current");
+  });
+}
+const adimGozcusu = new MutationObserver(adimGuncelle);
+for (const id of ["paylasim", "onay"]) adimGozcusu.observe($(id), { attributes: true, attributeFilter: ["hidden"] });
+adimGuncelle();
+
+// Yayında sürüm, derlenen commit'in kısaltmasıdır; yerelde "geliştirme" yazar.
+$("surum").textContent = `© ${new Date().getFullYear()} Tulpar · Sürüm ${/^[0-9a-f]{7,}$/.test(SURUM) ? SURUM.slice(0, 7) : "geliştirme"}`;
 
 basla();
