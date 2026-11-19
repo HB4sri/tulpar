@@ -1098,6 +1098,14 @@ $("kod-formu").onsubmit = e => {
   kodlaBaglan($("kod-girdi").value);
 };
 
+// Android'deki Firefox, dosya kutusunda tür belirtilmemişse seçim ekranına "fotoğraf çek" ve
+// "ses kaydet" seçeneklerini koymak için kamera ve mikrofon izni ister (Firefox 146+). Tür olarak
+// tek bir uzantı verilirse izin istemez; Android bu uzantıyı bir dosya türüne eşleyemediği için
+// seçim ekranı yine bütün dosyaları gösterir. Seçimi kısıtlamaz: tarayıcı türü yalnız öneri sayar.
+// Öteki tarayıcılarda tür verilmez; onlar izin istemiyor, verilen tür ise seçimi daraltabilir.
+if (/Android/.test(navigator.userAgent) && /Firefox\//.test(navigator.userAgent)) {
+  $("dosyalar").accept = ".tulpar";
+}
 $("sec").onclick = () => $("dosyalar").click();
 $("dosyalar").onchange = e => {
   dosyalariSirala([...e.target.files]);

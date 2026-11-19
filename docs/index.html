@@ -110,7 +110,8 @@
   :focus-visible { outline: 2px solid var(--vurgu-yazi); outline-offset: 2px; }
 
   /* Doğrulama kodu */
-  #dogrulama, #yeniden { max-width: 720px; width: 100%; }
+  /* Bağlıyken tek sütun: sayfanın ortasında dar bir sütun. */
+  main .kap:has(> #paylasim:not([hidden])) { max-width: 760px; }
   #dogrulama { padding: 18px 20px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; }
   #dogrulama .etiket { width: 100%; }
   #dogrulama-kodu { font: 600 2rem/1.1 ui-monospace, "SF Mono", Consolas, monospace; letter-spacing: .08em; font-variant-numeric: tabular-nums; }
@@ -150,7 +151,7 @@
   #yeniden { padding: 18px 20px; display: flex; flex-wrap: wrap; gap: 10px; }
 
   /* Paylaşım */
-  #paylasim { display: flex; flex-direction: column; gap: 16px; max-width: 720px; width: 100%; }
+  #paylasim { display: flex; flex-direction: column; gap: 16px; }
   #birakma {
     border: 2px dashed var(--cizgi); border-radius: var(--yaricap); padding: 28px 20px; text-align: center;
     display: flex; flex-direction: column; align-items: center; gap: 10px;
@@ -310,8 +311,7 @@
           Dosya gönder
         </button>
         <p class="soluk kucuk">Dosyaları buraya sürükleyip de bırakabilirsiniz.<br>Ücretsiz aktarma sunucusunda hız yaklaşık 0,4&nbsp;MB/sn.</p>
-        <!-- "*/*": her tür dosya. accept boş kalırsa Firefox Android kamera ve mikrofon izni ister. -->
-        <input id="dosyalar" type="file" accept="*/*" multiple hidden>
+        <input id="dosyalar" type="file" multiple hidden>
       </div>
       <div class="liste-ust">
         <h2>Aktarımlar</h2>
