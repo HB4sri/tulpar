@@ -1,7 +1,7 @@
 # Tulpar
 
 Hesapsız, ücretsiz, uçtan uca şifreli dosya paylaşımı. Tarayıcıda çalışır, kurulum gerektirmez:
-**https://hb4sri.github.io/tulpar/**
+**https://tulpar.page**
 
 ## Nasıl kullanılır
 
