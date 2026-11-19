@@ -65,6 +65,12 @@ npm run lisanslar   # docs/THIRD_PARTY_LICENSES.txt
 Yayındaki sürüm GitHub Actions'ta derlenir (`.github/workflows/yayinla.yml`). Derlenen dosyaların
 SHA-256 özetleri `docs/pkg/SHA256SUMS` dosyasında ve iş akışı günlüğünde yer alır.
 
+## Yayın
+
+- **https://tulpar.page**: Cloudflare Pages. İş akışı derlenmiş siteyi `yayin` dalına koyar,
+  Cloudflare bu dalı yayımlar. Güvenlik başlıkları `docs/_headers` dosyasındadır.
+- **https://hb4sri.github.io/tulpar/**: GitHub Pages, yedek adres. Aynı derleme çıktısı.
+
 ## Lisans
 
 [MIT](LICENSE). Kullanılan açık kaynak yazılımların lisansları:
