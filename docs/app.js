@@ -1199,6 +1199,6 @@ adimGuncelle();
 
 // Sürüm numarası yayında package.json'dan yazılır (ör. 1.0.0); yerelde "geliştirme" yazar.
 const surumAdi = $("surum").dataset.surum;
-$("surum").textContent = `Tulpar · ${/^\d+\.\d+\.\d+$/.test(surumAdi) ? "v" + surumAdi : "geliştirme"}`;
+$("surum").textContent = `Tulpar · HB4sri · ${/^\d+\.\d+\.\d+$/.test(surumAdi) ? "v" + surumAdi : "geliştirme"}`;
 
 basla();

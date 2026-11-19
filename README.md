@@ -36,6 +36,12 @@ sunucusunu önerir. Bu sunucular için çalışma süresi garantisi yoktur ve h�
 - **Kullanım büyürse:** Tulpar, n0'ın ücretli aktarma sunucularına ya da kendi aktarma sunucusuna
   geçirilir. Koşullar değişirse bu bölüm de güncellenir.
 
+## Sorun giderme
+
+Tulpar bir cihazda ya da ağda çalışmıyorsa [tanılama sayfasını](https://tulpar.page/tanilama/) açın.
+Sayfa, tarayıcının uygun olup olmadığını ve aktarma sunucularına ulaşılıp ulaşılamadığını kontrol eder.
+Sonuçları "Sonuçları kopyala" düğmesiyle alabilirsiniz.
+
 ## Güvenlik modeli
 
 **Korunanlar**
