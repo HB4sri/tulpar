@@ -189,6 +189,11 @@ function surelerGuncelle() {
 
 const bekle = ms => new Promise(coz => setTimeout(coz, ms));
 
+// Aktarım sonuçlarını ekran okuyucuya bildirir (görünmeyen canlı bölge).
+function duyur(metin) {
+  $("duyuru").textContent = metin;
+}
+
 function durumYaz(metin, tur = "") {
   durum.textContent = metin;
   durum.className = tur;
@@ -336,12 +341,14 @@ function satirEkle(yon, ad, boyut, oturum) {
     yaz(m) { metin.textContent = m; },
     tamam(m, ekOge) {
       li.className = "tamam";
+      duyur(`${m}. Dosya: ${ad}`);
       cubuk.style.transform = "scaleX(1)";
       metin.textContent = m;
       ek.replaceChildren(...(ekOge ? [ekOge] : []));
     },
     hata(m) {
       li.className = "hata";
+      duyur(`${m}. Dosya: ${ad}`);
       metin.textContent = m;
       ek.textContent = "";
     },
@@ -1098,12 +1105,14 @@ $("kod-formu").onsubmit = e => {
   kodlaBaglan($("kod-girdi").value);
 };
 
-// Android'deki Firefox, dosya kutusunda tür belirtilmemişse seçim ekranına "fotoğraf çek" ve
-// "ses kaydet" seçeneklerini koymak için kamera ve mikrofon izni ister (Firefox 146+). Tür olarak
-// tek bir uzantı verilirse izin istemez; Android bu uzantıyı bir dosya türüne eşleyemediği için
-// seçim ekranı yine bütün dosyaları gösterir. Seçimi kısıtlamaz: tarayıcı türü yalnız öneri sayar.
-// Öteki tarayıcılarda tür verilmez; onlar izin istemiyor, verilen tür ise seçimi daraltabilir.
-if (/Android/.test(navigator.userAgent) && /Firefox\//.test(navigator.userAgent)) {
+// Android'de Firefox ve Chrome (ve Chromium tabanlı tarayıcılar), dosya kutusunda tür
+// belirtilmemişse seçim ekranına "fotoğraf çek" ve "ses kaydet" seçeneklerini koymak için kamera
+// ve mikrofon izni ister. Tür olarak bilinmeyen tek bir uzantı verilirse ikisi de izin istemez:
+// Firefox uzantıyı olduğu gibi iletir, Chrome onu genel dosya (application/octet-stream) sayar;
+// medya türü olmadığı için kamera ve mikrofon gerekmez, seçim ekranı yine bütün dosyaları gösterir.
+// Seçimi kısıtlamaz: tarayıcı türü yalnız öneri sayar. Masaüstünde ve iPhone'da tür verilmez;
+// orada izin sorulmuyor, verilen tür ise pencerenin süzgecini daraltırdı.
+if (/Android/.test(navigator.userAgent)) {
   $("dosyalar").accept = ".tulpar";
 }
 $("sec").onclick = () => $("dosyalar").click();
