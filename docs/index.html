@@ -200,7 +200,8 @@
   footer { border-top: 1px solid var(--cizgi); padding: 18px 0 max(18px, env(safe-area-inset-bottom)); color: var(--soluk); font-size: .8125rem; }
   footer .kap { display: flex; align-items: center; gap: 12px 20px; flex-wrap: wrap; }
   .guvence { display: flex; align-items: center; gap: 8px; flex: 1 1 320px; }
-  .guvence svg { width: 16px; height: 16px; flex: none; color: var(--vurgu-yazi); }
+  .guvence svg { width: 16px; height: 16px; flex: none; color: var(--vurgu-yazi); align-self: flex-start; margin-top: .15em; }
+  .guvence a { color: var(--vurgu-yazi); text-underline-offset: 2px; white-space: nowrap; }
   .tema { display: inline-flex; padding: 3px; border-radius: 10px; background: var(--yuzey); border: 1px solid var(--cizgi); }
   .tema button {
     min-height: 30px; padding: 0 10px; border-radius: 8px; background: none; color: var(--soluk); font-size: .8125rem; font-weight: 600;
@@ -335,7 +336,7 @@
   <div class="kap">
     <p class="guvence">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"/><path d="M9 12l2 2 4-4"/></svg>
-      Dosyaların içeriği ve adı uçtan uca şifreli gider, hiçbir sunucuda saklanmaz.
+      <span>Dosyaların içeriği ve adı uçtan uca şifrelidir. Dosyalar n0'ın ücretsiz aktarma sunucularından geçer, hiçbir yerde saklanmaz. <a href="https://github.com/HB4sri/tulpar#dosyalar-nereden-geçer" target="_blank" rel="noopener noreferrer">Ayrıntılar</a></span>
     </p>
     <div class="tema" role="radiogroup" aria-label="Tema">
       <button role="radio" aria-checked="true" data-tema-sec="sistem">Sistem</button>
