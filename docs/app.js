@@ -38,6 +38,10 @@ const durum = $("durum");
 let dugum = null;
 let kodDugumu = null;
 let kodZamani = null;
+// Canlı geri sayımların bitiş anları (ms); ekrandaki süreler saniyede bir bunlardan yazılır.
+let qrBitis = 0;
+let kodBitis = 0;
+let onayBitis = 0;
 let kodKullanildi = false;
 let mevcut = null; // { baglanti, ad, karsiKimlik, yeniden, dugum }
 let bilerekKesildi = false;
@@ -163,6 +167,25 @@ function adiGoster() {
 }
 
 // --- Yardımcılar ---
+
+// Kalan süre sayaç biçiminde: 2:05.
+function sureYaz(ms) {
+  const sn = Math.max(0, Math.ceil(ms / 1000));
+  return `${Math.floor(sn / 60)}:${String(sn % 60).padStart(2, "0")}`;
+}
+
+// QR'ın yenilenmesine, kodun ve onay sorusunun süresine kalan zamanı ekrana yazar. QR'ın süresi
+// dolunca yenilenir; ekranda onay sorusu varken yenileme soru kapanana kadar bekler.
+function surelerGuncelle() {
+  const simdi = Date.now();
+  if (qrBitis && simdi >= qrBitis && !bekleyenOnay) {
+    qrYenile();
+    return;
+  }
+  if (qrBitis) $("qr-sure").textContent = `Yenilenmesine kalan süre: ${sureYaz(qrBitis - simdi)}`;
+  if (kodBitis) $("kod-sure").textContent = `Kalan süre: ${sureYaz(kodBitis - simdi)}`;
+  if (onayBitis) $("onay-sure").textContent = `Yanıt için kalan süre: ${sureYaz(onayBitis - simdi)}`;
+}
 
 const bekle = ms => new Promise(coz => setTimeout(coz, ms));
 
@@ -596,7 +619,9 @@ function onaySor(ad, kod, baglanti) {
     $("onay-uyari").hidden = !mevcut;
     $("onay-kabul").onclick = () => bitir(true);
     $("onay-ret").onclick = () => bitir(false);
+    onayBitis = Date.now() + ONAY_SURESI;
     $("onay").hidden = false;
+    surelerGuncelle();
   });
 }
 
@@ -800,7 +825,13 @@ async function kendiligindenBaglan(bilet) {
     } catch (e) {
       console.error(e);
     }
-    await bekle(ara);
+    // Bir sonraki denemeye kalan süre canlı gösterilir.
+    const sonraki = Date.now() + ara;
+    while (Date.now() < sonraki) {
+      if (mevcut || bilerekKesildi) return;
+      durumYaz(`Bağlantı koptu. Yeniden bağlanmaya kalan süre: ${sureYaz(sonraki - Date.now())}`, "hata");
+      await bekle(Math.min(1000, sonraki - Date.now()));
+    }
     ara = Math.min(ara * 2, YENIDEN_EN_UZUN_ARA);
   }
   if (mevcut) return;
@@ -864,7 +895,10 @@ async function kodGoster() {
   dugme.hidden = true;
   $("kod").textContent = gruplara(kod, 4);
   $("kod").hidden = $("kod-aciklama").hidden = false;
-  $("kod-aciklama").textContent = "Bu kodu diğer cihazdaki Tulpar sayfasına yazın. Kod 5 dakika geçerli ve bir kez kullanılabilir.";
+  $("kod-aciklama").textContent = "Bu kodu diğer cihazdaki Tulpar sayfasına yazın. Kod bir kez kullanılabilir.";
+  kodBitis = Date.now() + KOD_SURESI;
+  $("kod-sure").hidden = false;
+  surelerGuncelle();
   gelenleriBekle(yeni);
   kodZamani = setTimeout(() => {
     if (kodKullanildi) return;
@@ -877,7 +911,8 @@ async function kodGoster() {
 // Ekrandaki kodu kaldırır; "Kod göster" yeniden kullanılabilir olur.
 function koduGizle() {
   clearTimeout(kodZamani);
-  $("kod").hidden = $("kod-aciklama").hidden = true;
+  kodBitis = 0;
+  $("kod").hidden = $("kod-aciklama").hidden = $("kod-sure").hidden = true;
   const dugme = $("kod-goster");
   dugme.hidden = false;
   dugme.disabled = false;
@@ -959,6 +994,8 @@ function qrGoster() {
   qr.addData(adres);
   qr.make();
   $("qr-resim").innerHTML = qr.createSvgTag({ cellSize: 4, margin: 2, scalable: true });
+  qrBitis = Date.now() + QR_SURESI;
+  surelerGuncelle();
   const dugme = $("adres-kopyala");
   dugme.dataset.adres = adres;
   dugme.onclick = async () => {
@@ -1012,8 +1049,8 @@ async function basla() {
   gelenleriBekle(dugum);
   qrGoster();
   // QR'daki tek kullanımlık değer kullanılmasa da belli aralıklarla yenilenir; ekranda uzun süre
-  // açık kalan bir QR'ı sonradan okutan biri onay sorusu çıkaramaz.
-  setInterval(() => { if (!bekleyenOnay) qrYenile(); }, QR_SURESI);
+  // açık kalan bir QR'ı sonradan okutan biri onay sorusu çıkaramaz. Süreler canlı gösterilir.
+  setInterval(surelerGuncelle, 1000);
 
   let gelen = null;
   let okunamadi = false;
@@ -1143,7 +1180,8 @@ const adimGozcusu = new MutationObserver(adimGuncelle);
 for (const id of ["paylasim", "onay"]) adimGozcusu.observe($(id), { attributes: true, attributeFilter: ["hidden"] });
 adimGuncelle();
 
-// Yayında sürüm, derlenen commit'in kısaltmasıdır; yerelde "geliştirme" yazar.
-$("surum").textContent = `© ${new Date().getFullYear()} Tulpar · Sürüm ${/^[0-9a-f]{7,}$/.test(SURUM) ? SURUM.slice(0, 7) : "geliştirme"}`;
+// Sürüm numarası yayında package.json'dan yazılır (ör. 1.0.0); yerelde "geliştirme" yazar.
+const surumAdi = $("surum").dataset.surum;
+$("surum").textContent = `© ${new Date().getFullYear()} Tulpar · ${/^\d+\.\d+\.\d+$/.test(surumAdi) ? "v" + surumAdi : "geliştirme"}`;
 
 basla();

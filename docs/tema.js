@@ -2,7 +2,7 @@
 // bile görünmesin; bu yüzden <head> içinde, modül olmadan yüklenir. Seçim bu cihazda saklanır.
 (() => {
   const AD = "tulpar-tema";
-  const RENK = { acik: "#112d4e", koyu: "#112d4e" };
+  const RENK = { acik: "#112d4e", koyu: "#090d14" };
   const kok = document.documentElement;
 
   function oku() {
