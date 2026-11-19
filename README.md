@@ -1,7 +1,13 @@
-# Tulpar
+<p align="center">
+  <img src="docs/simge.svg" width="96" height="96" alt="Tulpar simgesi">
+</p>
 
-Hesapsız, ücretsiz, uçtan uca şifreli dosya paylaşımı. Tarayıcıda çalışır, kurulum gerektirmez:
-**https://tulpar.page**
+<h1 align="center">Tulpar</h1>
+
+<p align="center">
+  Hesapsız, ücretsiz, uçtan uca şifreli dosya paylaşımı. Tarayıcıda çalışır, kurulum gerektirmez.<br>
+  <a href="https://tulpar.page"><strong>tulpar.page</strong></a>
+</p>
 
 Tulpar ücretsiz ve reklamsız, kişisel bir projedir. Ticari bir hizmet değildir.
 
