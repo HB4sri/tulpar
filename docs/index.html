@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Sayfa yalnız kendi dosyalarını yükleyebilir ve yalnız n0 relay'lerine bağlanabilir. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self' https://*.relay.n0.iroh.link wss://*.relay.n0.iroh.link; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<title>Tulpar</title>
+<link rel="icon" href="simge.svg" type="image/svg+xml">
+<link rel="icon" href="simge-192.png" type="image/png" sizes="192x192">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#2a5db0">
+<style>
+  :root {
+    --zemin: #f6f7f9; --kart: #ffffff; --yazi: #1d2330; --soluk: #667085; --cizgi: #e3e6eb;
+    --vurgu: #2a5db0; --vurgu-acik: #e8eef9; --tamam: #1a7f37; --hata: #c62828;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --zemin: #12151b; --kart: #1b2029; --yazi: #e7eaf0; --soluk: #98a2b3; --cizgi: #2b3240;
+      --vurgu: #6ea8fe; --vurgu-acik: #1d2a40; --tamam: #4ac26b; --hata: #f47067;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--zemin); color: var(--yazi); font: 16px/1.5 system-ui, sans-serif; }
+  main { max-width: 640px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 1.5rem; margin: 0 0 4px; }
+  [hidden] { display: none !important; }
+  .kart { background: var(--kart); border: 1px solid var(--cizgi); border-radius: 14px; padding: 20px; margin-top: 16px; }
+  #durum { color: var(--soluk); margin: 0; }
+  #durum.hata { color: var(--hata); font-weight: 600; }
+  #durum.tamam { color: var(--tamam); font-weight: 600; }
+  #baglan { text-align: center; }
+  #qr { display: flex; flex-direction: column; align-items: center; }
+  #qr-resim { width: min(320px, 100%); aspect-ratio: 1; background: #fff; border-radius: 10px; padding: 8px; }
+  #qr-resim svg { width: 100%; height: 100%; display: block; }
+  #qr p { margin: 12px 0 0; }
+  .ayrac { display: flex; align-items: center; gap: 12px; color: var(--soluk); font-size: .85rem; margin: 20px 0 16px; }
+  .ayrac::before, .ayrac::after { content: ""; flex: 1; border-top: 1px solid var(--cizgi); }
+  #kod { font: 700 2.2rem/1.2 ui-monospace, monospace; letter-spacing: .12em; margin: 0; }
+  #kod-aciklama { color: var(--soluk); font-size: .9rem; margin: 6px 0 0; }
+  #kod-formu { display: flex; gap: 8px; justify-content: center; margin-top: 16px; }
+  #kod-girdi {
+    font: 600 1.1rem ui-monospace, monospace; letter-spacing: .1em; text-transform: uppercase;
+    width: 11em; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--cizgi);
+    background: var(--zemin); color: var(--yazi);
+  }
+  .cihaz { margin: 0 0 8px; color: var(--soluk); font-size: .9rem; }
+  #cihaz-adi { color: var(--yazi); font-weight: 600; }
+  button.bag { background: none; border: 0; padding: 0 0 0 6px; color: var(--vurgu); font-size: .85rem; font-weight: 600; }
+  #onay { border-color: var(--vurgu); }
+  #onay-metin { font-weight: 700; font-size: 1.1rem; margin: 0; overflow-wrap: anywhere; }
+  .onay-ek { color: var(--soluk); font-size: .9rem; margin: 6px 0 0; overflow-wrap: anywhere; }
+  #onay-kod { font: 700 1rem ui-monospace, monospace; color: var(--yazi); letter-spacing: .08em; }
+  .onay-dugmeler { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+  button.sil {
+    flex: none; background: none; border: 0; padding: 0 4px; margin-left: 4px;
+    color: var(--soluk); font-size: 1.2rem; font-weight: 400; line-height: 1;
+  }
+  button.sil:hover { color: var(--hata); }
+  #aktarimlar li:not(.tamam):not(.hata) button.sil { visibility: hidden; }
+  .kim { color: var(--soluk); font-size: .8rem; margin-top: 2px; overflow-wrap: anywhere; }
+  #ayrinti { margin: 6px 0 0; color: var(--soluk); font: .8rem ui-monospace, monospace; overflow-wrap: anywhere; }
+  #dogrulama { margin: 4px 0 0; color: var(--soluk); font-size: .9rem; }
+  #dogrulama-kodu { font: 700 1.05rem ui-monospace, monospace; color: var(--yazi); letter-spacing: .08em; }
+  button, .dugme {
+    font: inherit; font-weight: 600; border: 0; border-radius: 10px; cursor: pointer;
+    padding: 12px 20px; background: var(--vurgu); color: #fff; text-decoration: none; display: inline-block;
+  }
+  button.ikincil { background: transparent; color: var(--vurgu); border: 1px solid var(--cizgi); }
+  #birakma {
+    border: 2px dashed var(--cizgi); border-radius: 14px; padding: 28px 16px; text-align: center;
+    background: var(--kart); margin-top: 16px; transition: background .15s, border-color .15s;
+  }
+  #birakma.uzerinde { border-color: var(--vurgu); background: var(--vurgu-acik); }
+  #birakma p { margin: 0 0 12px; color: var(--soluk); }
+  #birakma p.hiz { margin: 12px 0 0; font-size: .8rem; }
+  .liste-ust { display: flex; justify-content: flex-end; margin-top: 16px; }
+  .liste-ust button { padding: 8px 14px; font-size: .85rem; }
+  #aktarimlar { list-style: none; padding: 0; margin: 8px 0 0; }
+  #aktarimlar li { background: var(--kart); border: 1px solid var(--cizgi); border-radius: 12px; padding: 12px 14px; margin-top: 8px; }
+  .ust { display: flex; gap: 8px; align-items: baseline; }
+  .yon { flex: none; }
+  .ad { font-weight: 600; overflow-wrap: anywhere; flex: 1; }
+  .boyut { color: var(--soluk); font-size: .85rem; flex: none; }
+  .cubuk { height: 6px; background: var(--cizgi); border-radius: 3px; margin: 8px 0 4px; overflow: hidden; }
+  .cubuk span { display: block; height: 100%; width: 0; background: var(--vurgu); transition: width .2s; }
+  .bilgi { color: var(--soluk); font-size: .85rem; display: flex; justify-content: space-between; gap: 8px; }
+  li.tamam .cubuk span { background: var(--tamam); }
+  li.tamam .bilgi span:first-child { color: var(--tamam); }
+  li.hata .cubuk span { background: var(--hata); }
+  li.hata .bilgi span:first-child { color: var(--hata); }
+  .bilgi a { color: var(--vurgu); font-weight: 600; }
+  .bilgi a.kaydet {
+    background: var(--vurgu); color: #fff; text-decoration: none; padding: 4px 12px; border-radius: 8px;
+  }
+  .alt { color: var(--soluk); font-size: .8rem; margin-top: 24px; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .alt button { padding: 8px 14px; font-size: .85rem; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Tulpar</h1>
+  <p class="cihaz">Bu cihaz: <span id="cihaz-adi"></span> <button id="ad-degistir" class="bag">Adı değiştir</button></p>
+  <p id="durum">Hazırlanıyor…</p>
+  <p id="ayrinti" hidden></p>
+  <p id="dogrulama" hidden>Doğrulama kodu: <span id="dogrulama-kodu"></span> · İki cihazda da aynı olmalı.</p>
+
+  <section id="onay" class="kart" hidden>
+    <p id="onay-metin"></p>
+    <p class="onay-ek">Doğrulama kodu: <span id="onay-kod"></span> · Diğer cihazda da aynı olmalı.</p>
+    <p id="onay-uyari" class="onay-ek" hidden></p>
+    <div class="onay-dugmeler">
+      <button id="onay-kabul">Kabul et</button>
+      <button id="onay-ret" class="ikincil">Reddet</button>
+    </div>
+  </section>
+
+  <section id="baglan" class="kart" hidden>
+    <div id="qr">
+      <div id="qr-resim"></div>
+      <p>Telefonunuzun kamerasıyla bu kodu okutun.</p>
+      <p><button id="adres-kopyala" class="ikincil">Bağlantı adresini kopyala</button></p>
+    </div>
+    <div class="ayrac">ya da kodla bağlanın</div>
+    <button id="kod-goster" class="ikincil">Kod göster</button>
+    <p id="kod" hidden></p>
+    <p id="kod-aciklama" hidden>Bu kodu diğer cihazda aşağıdaki alana yazın.</p>
+    <form id="kod-formu">
+      <input id="kod-girdi" placeholder="Kod" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" maxlength="11" aria-label="Diğer cihazdaki kod">
+      <button type="submit">Bağlan</button>
+    </form>
+  </section>
+
+  <section id="yeniden" class="kart" hidden>
+    <button id="yeniden-dugme">Yeniden bağlan</button>
+  </section>
+
+  <section id="paylasim" hidden>
+    <div id="birakma">
+      <p>Dosyaları buraya bırakın ya da seçin.</p>
+      <p class="hiz">Ücretsiz relay üzerinden hız yaklaşık 0,4 MB/sn.</p>
+      <button id="sec">Dosya seç</button>
+      <input id="dosyalar" type="file" multiple hidden>
+    </div>
+    <div class="liste-ust"><button id="temizle" class="ikincil" hidden>Geçmişi temizle</button></div>
+    <ul id="aktarimlar"></ul>
+  </section>
+
+  <div class="alt">
+    <span>Dosyaların içeriği ve adı uçtan uca şifreli gider, hiçbir sunucuda saklanmaz. Doğrulama kodunu iki ekranda karşılaştırın.</span>
+    <button id="kes" class="ikincil" hidden>Bağlantıyı kes</button>
+  </div>
+</main>
+<!-- __SURUM__ yayında derleme sürümüyle değiştirilir (önbellekte eski ve yeni dosyalar karışmasın). -->
+<script src="lib/qrcode.js?v=__SURUM__"></script>
+<script type="module" src="app.js?v=__SURUM__"></script>
+</body>
+</html>

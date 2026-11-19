@@ -1,0 +1,8 @@
+{
+  "name": "tulpar",
+  "private": true,
+  "scripts": {
+    "derle": "node derle.mjs",
+    "lisanslar": "node lisanslar.mjs"
+  }
+}

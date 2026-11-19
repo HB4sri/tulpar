@@ -1,0 +1,7 @@
+[build]
+target = "wasm32-unknown-unknown"
+
+# Doğrudan `cargo build` için. `npm run derle` (derle.mjs) bu bayrakların yerine kendi bayraklarını verir.
+# ring'in C derleyicisi (CC_wasm32_unknown_unknown) de derle.mjs'te ayarlanır.
+[target.wasm32-unknown-unknown]
+rustflags = ['--cfg', 'getrandom_backend="wasm_js"']

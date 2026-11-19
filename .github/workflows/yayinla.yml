@@ -1,0 +1,76 @@
+# WebAssembly çekirdeğini GitHub'ın sunucusunda derler, bilinen güvenlik açıklarını tarar ve
+# docs/ klasörünü GitHub Pages'te yayımlar. Derlenen dosyaların SHA-256 özetleri docs/pkg/SHA256SUMS
+# dosyasında ve iş akışı günlüğünde görünür.
+#
+# Eylemler değiştirilemez commit SHA'larıyla çağrılır (yanlarında sürüm etiketi yazar).
+name: Derle ve yayımla
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  derle:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Rust (rust-toolchain.toml'daki sürüm)
+        run: rustup toolchain install && rustup show active-toolchain
+
+      - name: clang ve llvm-ar (ring'in WebAssembly derlemesi için)
+        run: sudo apt-get update && sudo apt-get install -y clang llvm
+
+      # install-action indirdiği araçların özetini doğrular.
+      - name: wasm-bindgen ve cargo-audit
+        uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2.90.6
+        with:
+          tool: wasm-bindgen@0.2.130,cargo-audit
+
+      - name: Güvenlik açığı taraması
+        working-directory: wasm
+        run: cargo audit
+
+      - name: Derle
+        env:
+          CC_wasm32_unknown_unknown: clang
+          AR_wasm32_unknown_unknown: llvm-ar
+        run: node derle.mjs
+
+      - name: Özetler
+        working-directory: docs/pkg
+        run: sha256sum tulpar_cekirdek_bg.wasm tulpar_cekirdek.js | tee SHA256SUMS
+
+      # Dosya adreslerine sürüm eklenir; tarayıcı önbelleğinde eski ve yeni dosyalar karışmaz.
+      - name: Sürüm
+        run: sed -i "s/__SURUM__/${GITHUB_SHA::12}/g" docs/index.html
+
+      - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: docs
+
+  yayimla:
+    needs: derle
+    runs-on: ubuntu-24.04
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.yayin.outputs.page_url }}
+    steps:
+      - id: yayin
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

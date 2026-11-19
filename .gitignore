@@ -1,0 +1,9 @@
+node_modules/
+wasm/target/
+# Yerel deneme ve tanı dosyaları, araç ayarları
+yerel/
+.onizleme/
+.claude/
+.wrangler/
+# Derlenmiş çekirdek GitHub Actions'ta üretilir (.github/workflows/yayinla.yml)
+docs/pkg/
