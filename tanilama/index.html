@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self' https://*.relay.n0.iroh.link wss://*.relay.n0.iroh.link; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<title>Tanılama · Tulpar</title>
+<link rel="icon" href="../simge.svg" type="image/svg+xml">
+<link rel="icon" href="../simge-192.png" type="image/png" sizes="192x192">
+<link rel="apple-touch-icon" href="../apple-touch-icon.png">
+<meta name="theme-color" content="#112d4e" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#090d14" media="(prefers-color-scheme: dark)">
+<script src="../tema.js?v=246feb738de3"></script>
+<link rel="stylesheet" href="../stil.css?v=246feb738de3">
+</head>
+<body>
+<header class="ust">
+  <div class="kap">
+    <a class="logo" href="../">
+      <svg viewBox="0 0 64 64" aria-hidden="true"><path d="M13 50 C 23 45, 34 43, 47 44 C 39 49, 27 51, 13 50 Z" fill="#3f72af"/><path d="M13 50 C 21 39, 34 31, 51 29 C 43 38, 31 45, 13 50 Z" fill="#dbe2ef"/><path d="M13 50 C 18 32, 33 17, 54 11 C 47 24, 34 38, 13 50 Z" fill="#f9f7f7"/></svg>
+      Tulpar
+    </a>
+    <p class="cihaz"><a class="bag" href="../">Ana sayfa</a></p>
+  </div>
+</header>
+
+<main>
+  <div class="kap tani">
+    <div class="giris">
+      <h1>Bağlantı tanılama</h1>
+      <p class="soluk">Bu sayfa, Tulpar'ın bu cihazda ve bu ağda çalışıp çalışmadığını kontrol eder. Dosya gönderilmez, hiçbir bilgi kaydedilmez.</p>
+    </div>
+
+    <ul id="kontroller" class="kart tani-liste"></ul>
+
+    <p id="ozet" class="tani-ozet" role="status" aria-live="polite" hidden></p>
+
+    <div class="tani-dugmeler">
+      <button id="basla">Kontrol et</button>
+      <button id="kopyala" class="ikincil" hidden>Sonuçları kopyala</button>
+    </div>
+  </div>
+</main>
+
+<footer>
+  <div class="kap">
+    <span id="surum" class="surum" data-surum="1.1.1">Tulpar</span>
+    <p class="guvence">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"/><path d="M9 12l2 2 4-4"/></svg>
+      <span>Tulpar ücretsiz ve reklamsız, kişisel bir projedir. Dosyalar uçtan uca şifreli gider ve hiçbir yerde saklanmaz. Cihazlar aynı ağda değilse n0'ın ücretsiz aktarma sunucuları kullanılır. <a href="https://github.com/HB4sri/tulpar#dosyalar-nereden-geçer" target="_blank" rel="noopener noreferrer">Ayrıntılar</a></span>
+    </p>
+    <div class="sag">
+      <div class="tema" role="radiogroup" aria-label="Tema">
+        <button role="radio" aria-checked="true" data-tema-sec="sistem">Sistem</button>
+        <button role="radio" aria-checked="false" data-tema-sec="acik">Açık</button>
+        <button role="radio" aria-checked="false" data-tema-sec="koyu">Koyu</button>
+      </div>
+      <a class="github" href="https://github.com/HB4sri/tulpar" target="_blank" rel="noopener noreferrer" aria-label="Kaynak kodu GitHub'da" title="Kaynak kodu GitHub'da">
+        <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      </a>
+    </div>
+  </div>
+</footer>
+
+<script type="module" src="tanilama.js?v=246feb738de3"></script>
+</body>
+</html>
