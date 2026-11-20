@@ -69,16 +69,25 @@ export class Baglanti {
         return ret;
     }
     /**
-     * Bu bağlantının TLS oturum sırlarından türetilen 6 haneli doğrulama kodu. İki uçta aynı
-     * çıkar; araya giren biri iki ayrı oturum kurmak zorunda kalacağından kodlar farklı olur.
+     * 6 haneli doğrulama kodu: bu bağlantının TLS oturum sırlarından ve iki tarafın rastgele
+     * değerlerinden türetilir. İki uçta aynı çıkar; araya giren biri iki ayrı oturum kurmak zorunda
+     * kalacağından kodlar farklı olur.
+     *
+     * `bagli_deger` bağlanan tarafın, `kabul_degeri` bağlantıyı kabul eden tarafın değeridir.
+     * Bağlanan taraf kendi değerini önce SHA-256 özetiyle bağlar (taahhüt), karşının değerini
+     * aldıktan sonra açar; JavaScript, kabul eden tarafta özetin tuttuğunu denetler. Böylece
+     * araya giren biri kendi değerini kodları eşitleyecek biçimde seçemez: iki oturumun her
+     * birinde son değeri dürüst taraf verir ve kodların tutma olasılığı milyonda birdir.
+     * @param {Uint8Array} bagli_deger
+     * @param {Uint8Array} kabul_degeri
      * @returns {string}
      */
-    dogrulama() {
+    dogrulama(bagli_deger, kabul_degeri) {
         let deferred2_0;
         let deferred2_1;
         try {
             const retptr = wasm.__wbindgen_add_to_stack_pointer(-16) >>> 0;
-            wasm.baglanti_dogrulama(retptr, this.__wbg_ptr);
+            wasm.baglanti_dogrulama(retptr, this.__wbg_ptr, bagli_deger, kabul_degeri);
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
             var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
             var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
@@ -134,6 +143,43 @@ export class Baglanti {
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
             wasm.__wbindgen_export3(deferred1_0, deferred1_1, 1);
+        }
+    }
+    /**
+     * İki tarafın dış adres anahtarlarını, adresleri göstermeden karşılaştırmak için CPace
+     * (bk. `Karsilastirma`). `teklif_eden`: doğrudan bağlantıyı teklif eden taraf mı?
+     * `anahtarlar`: her yuva için bir anahtar (IPv4 dış adresi, IPv6 ağ öneki); anahtarı olmayan
+     * yuvaya boş dize verilir ve yerine rastgele bir değer konur, karşı taraf bunu ayırt edemez.
+     * @param {boolean} teklif_eden
+     * @param {string} v4
+     * @param {string} v6
+     * @returns {Karsilastirma}
+     */
+    karsilastir(teklif_eden, v4, v6) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16) >>> 0;
+            const val3 = +teklif_eden;
+            let ptr0, len0, ptr1, len1;
+            try {
+                ptr0 = passStringToWasm0(v4, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+                len0 = WASM_VECTOR_LEN;
+                ptr1 = passStringToWasm0(v6, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+                len1 = WASM_VECTOR_LEN;
+            } catch (e) {
+                if (ptr1) { wasm.__wbindgen_export3(ptr1, len1 * 1, 1); }
+                if (ptr0) { wasm.__wbindgen_export3(ptr0, len0 * 1, 1); }
+                throw e;
+            }
+            wasm.baglanti_karsilastir(retptr, this.__wbg_ptr, val3, ptr0, len0, ptr1, len1);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+            if (r2) {
+                throw takeFromExternrefTable0(r1);
+            }
+            return Karsilastirma.__wrap(r0);
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
         }
     }
 }
@@ -458,6 +504,106 @@ export class IntoUnderlyingSource {
 }
 if (Symbol.dispose) IntoUnderlyingSource.prototype[Symbol.dispose] = IntoUnderlyingSource.prototype.free;
 
+/**
+ * Dış adres anahtarlarının gizli karşılaştırması. Akış:
+ * 1. iki taraf `ileti()` sonucunu değiştirir;
+ * 2. her taraf karşının iletisini `etiketler()` ile işler ve çıkan etiketleri gönderir;
+ * 3. `eslesenler()` karşıdan gelen etiketlerle hangi yuvaların tuttuğunu söyler.
+ * Etiketi doğru çıkan karşı taraf aynı anahtarı biliyordur.
+ */
+export class Karsilastirma {
+    static __wrap(ptr) {
+        const obj = Object.create(Karsilastirma.prototype);
+        obj.__wbg_ptr = ptr;
+        KarsilastirmaFinalization.register(obj, obj.__wbg_ptr, obj);
+        return obj;
+    }
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        KarsilastirmaFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_karsilastirma_free(ptr, 0);
+    }
+    /**
+     * Karşının etiketlerini denetler. Sonuç: tutan yuvaların bit maskesi (1: IPv4, 2: IPv6).
+     * @param {string} karsi
+     * @returns {number}
+     */
+    eslesenler(karsi) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16) >>> 0;
+            const ptr0 = passStringToWasm0(karsi, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+            const len0 = WASM_VECTOR_LEN;
+            wasm.karsilastirma_eslesenler(retptr, this.__wbg_ptr, ptr0, len0);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+            if (r2) {
+                throw takeFromExternrefTable0(r1);
+            }
+            return r0;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
+     * Karşının iletisini işler; karşıya gönderilecek etiketleri döner (yuva başına 16 bayt, onaltılı).
+     * @param {string} karsi
+     * @returns {string}
+     */
+    etiketler(karsi) {
+        let deferred3_0;
+        let deferred3_1;
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16) >>> 0;
+            const ptr0 = passStringToWasm0(karsi, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+            const len0 = WASM_VECTOR_LEN;
+            wasm.karsilastirma_etiketler(retptr, this.__wbg_ptr, ptr0, len0);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+            var r3 = getDataViewMemory0().getInt32(retptr + 4 * 3, true);
+            var ptr2 = r0;
+            var len2 = r1;
+            if (r3) {
+                ptr2 = 0; len2 = 0;
+                throw takeFromExternrefTable0(r2);
+            }
+            deferred3_0 = ptr2;
+            deferred3_1 = len2;
+            return getStringFromWasm0(ptr2, len2);
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+            wasm.__wbindgen_export3(deferred3_0, deferred3_1, 1);
+        }
+    }
+    /**
+     * Karşıya gönderilecek ileti: her yuva için 32 baytlık nokta, onaltılı.
+     * @returns {string}
+     */
+    ileti() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16) >>> 0;
+            wasm.karsilastirma_ileti(retptr, this.__wbg_ptr);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            deferred1_0 = r0;
+            deferred1_1 = r1;
+            return getStringFromWasm0(r0, r1);
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+            wasm.__wbindgen_export3(deferred1_0, deferred1_1, 1);
+        }
+    }
+}
+if (Symbol.dispose) Karsilastirma.prototype[Symbol.dispose] = Karsilastirma.prototype.free;
+
 export function yukle() {
     wasm.yukle();
 }
@@ -629,6 +775,9 @@ function __wbg_get_imports() {
             const ret = Gelen.__wrap(arg0);
             return ret;
         },
+        __wbg_getRandomValues_5d8c030b527203a6: function() { return handleError(function (arg0, arg1) {
+            globalThis.crypto.getRandomValues(getArrayU8FromWasm0(arg0, arg1));
+        }, arguments); },
         __wbg_getRandomValues_8b6f1f663e6f188d: function() { return handleError(function (arg0, arg1) {
             globalThis.crypto.getRandomValues(getArrayU8FromWasm0(arg0, arg1));
         }, arguments); },
@@ -759,7 +908,7 @@ function __wbg_get_imports() {
                     const a = state0.a;
                     state0.a = 0;
                     try {
-                        return __wasm_bindgen_func_elem_3866(a, state0.b, arg0, arg1);
+                        return __wasm_bindgen_func_elem_3917(a, state0.b, arg0, arg1);
                     } finally {
                         state0.a = a;
                     }
@@ -992,33 +1141,33 @@ function __wbg_get_imports() {
             return ret;
         },
         __wbindgen_generic_0000000000000001: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [Externref], shim_idx: 441, ret: Result(Unit), inner_ret: Some(Result(Unit)) }, mutable: true }) -> Externref`.
-            const ret = makeMutClosure(arg0, arg1, __wasm_bindgen_func_elem_3798);
+            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [Externref], shim_idx: 443, ret: Result(Unit), inner_ret: Some(Result(Unit)) }, mutable: true }) -> Externref`.
+            const ret = makeMutClosure(arg0, arg1, __wasm_bindgen_func_elem_3849);
             return ret;
         },
         __wbindgen_generic_0000000000000002: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [Externref], shim_idx: 536, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-            const ret = makeMutClosure(arg0, arg1, __wasm_bindgen_func_elem_7693);
+            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [Externref], shim_idx: 538, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            const ret = makeMutClosure(arg0, arg1, __wasm_bindgen_func_elem_7740);
             return ret;
         },
         __wbindgen_generic_0000000000000003: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [NamedExternref("CloseEvent")], shim_idx: 377, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-            const ret = makeMutClosure(arg0, arg1, __wasm_bindgen_func_elem_3118);
+            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [NamedExternref("CloseEvent")], shim_idx: 379, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            const ret = makeMutClosure(arg0, arg1, __wasm_bindgen_func_elem_3170);
             return ret;
         },
         __wbindgen_generic_0000000000000004: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [NamedExternref("MessageEvent")], shim_idx: 379, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-            const ret = makeMutClosure(arg0, arg1, __wasm_bindgen_func_elem_8276);
+            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [NamedExternref("MessageEvent")], shim_idx: 381, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            const ret = makeMutClosure(arg0, arg1, __wasm_bindgen_func_elem_8323);
             return ret;
         },
         __wbindgen_generic_0000000000000005: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [], shim_idx: 106, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-            const ret = makeMutClosure(arg0, arg1, __wasm_bindgen_func_elem_1537);
+            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [], shim_idx: 108, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            const ret = makeMutClosure(arg0, arg1, __wasm_bindgen_func_elem_1605);
             return ret;
         },
         __wbindgen_generic_0000000000000006: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [], shim_idx: 29, ret: Unit, inner_ret: Some(Unit) }, mutable: false }) -> Externref`.
-            const ret = makeClosure(arg0, arg1, __wasm_bindgen_func_elem_5170);
+            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [], shim_idx: 30, ret: Unit, inner_ret: Some(Unit) }, mutable: false }) -> Externref`.
+            const ret = makeClosure(arg0, arg1, __wasm_bindgen_func_elem_5220);
             return ret;
         },
         __wbindgen_generic_0000000000000007: function(arg0, arg1) {
@@ -1046,34 +1195,34 @@ function __wbg_get_imports() {
     };
 }
 
-function __wasm_bindgen_func_elem_1537(arg0, arg1) {
-    wasm.__wasm_bindgen_func_elem_1537(arg0, arg1);
+function __wasm_bindgen_func_elem_1605(arg0, arg1) {
+    wasm.__wasm_bindgen_func_elem_1605(arg0, arg1);
 }
 
-function __wasm_bindgen_func_elem_5170(arg0, arg1) {
-    wasm.__wasm_bindgen_func_elem_5170(arg0, arg1);
+function __wasm_bindgen_func_elem_5220(arg0, arg1) {
+    wasm.__wasm_bindgen_func_elem_5220(arg0, arg1);
 }
 
-function __wasm_bindgen_func_elem_7693(arg0, arg1, arg2) {
-    wasm.__wasm_bindgen_func_elem_7693(arg0, arg1, arg2);
+function __wasm_bindgen_func_elem_7740(arg0, arg1, arg2) {
+    wasm.__wasm_bindgen_func_elem_7740(arg0, arg1, arg2);
 }
 
-function __wasm_bindgen_func_elem_3118(arg0, arg1, arg2) {
-    wasm.__wasm_bindgen_func_elem_3118(arg0, arg1, arg2);
+function __wasm_bindgen_func_elem_3170(arg0, arg1, arg2) {
+    wasm.__wasm_bindgen_func_elem_3170(arg0, arg1, arg2);
 }
 
-function __wasm_bindgen_func_elem_8276(arg0, arg1, arg2) {
-    wasm.__wasm_bindgen_func_elem_8276(arg0, arg1, arg2);
+function __wasm_bindgen_func_elem_8323(arg0, arg1, arg2) {
+    wasm.__wasm_bindgen_func_elem_8323(arg0, arg1, arg2);
 }
 
-function __wasm_bindgen_func_elem_3866(arg0, arg1, arg2, arg3) {
-    wasm.__wasm_bindgen_func_elem_3866(arg0, arg1, arg2, arg3);
+function __wasm_bindgen_func_elem_3917(arg0, arg1, arg2, arg3) {
+    wasm.__wasm_bindgen_func_elem_3917(arg0, arg1, arg2, arg3);
 }
 
-function __wasm_bindgen_func_elem_3798(arg0, arg1, arg2) {
+function __wasm_bindgen_func_elem_3849(arg0, arg1, arg2) {
     try {
         const retptr = wasm.__wbindgen_add_to_stack_pointer(-16) >>> 0;
-        wasm.__wasm_bindgen_func_elem_3798(retptr, arg0, arg1, arg2);
+        wasm.__wasm_bindgen_func_elem_3849(retptr, arg0, arg1, arg2);
         var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
         var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
         if (r1) {
@@ -1125,6 +1274,9 @@ const IntoUnderlyingSinkFinalization = (typeof FinalizationRegistry === 'undefin
 const IntoUnderlyingSourceFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_intounderlyingsource_free(ptr, 1));
+const KarsilastirmaFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_karsilastirma_free(ptr, 1));
 
 function addToExternrefTable0(obj) {
     const idx = wasm.__wbindgen_export5();

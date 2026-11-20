@@ -9,7 +9,8 @@ const pkgAdresi = ad => new URL(`./pkg/${ad}?v=${SURUM}`, import.meta.url).href;
 const { default: init, Dugum } = await import(pkgAdresi("tulpar_cekirdek.js"));
 
 // Her akış bir çerçeveyle başlar: [4 bayt başlık uzunluğu][JSON başlık], ardından varsa içerik.
-// Dosya başlığı: { ad, boyut }. Tanışma başlığı: { tip: "tanitim", ad, sir?, adres? } (içerik yok).
+// Dosya başlığı: { ad, boyut }. Tanışma başlığı: { tip: "tanitim", ad, sir?, adres?, taahhut? }.
+// Doğrulama değeri: { tip: "dogrulama", deger } (bk. "Doğrulama kodu"). Bu ikisinde içerik yok.
 const PARCA = 256 * 1024;
 const BASLIK_SINIRI = 16 * 1024;
 // Gelen dosya bellekte tutulur; iPhone ve iPad'de tarayıcı sekmesi daha az belleğe izin verir.
@@ -35,6 +36,7 @@ const MESGUL = "mesgul";         // başka bir istek yanıt bekliyor
 const KAPANDI = "kapandi";       // sayfa kapandı ya da yenilendi, tanışma olmadı
 const YENILENDI = "yenilendi";   // aynı cihaz yeni bir bağlantıyla geldi, eskisi kapandı
 const GECIS = "gecis";           // kodla eşleşme kabul edildi, asıl adrese geçiliyor
+const ESKI = "eski";             // karşıdaki sayfa doğrulama değerlerini değiştirmeyen eski bir sürüm
 const DURDURAN_NEDENLER = [KESILDI, DEGISTI, REDDEDILDI];
 
 const $ = id => document.getElementById(id);
@@ -683,12 +685,15 @@ async function almaDongusu(oturum) {
 // Tarayıcılar yerel adresi "xxx.local" takma adıyla gizler ve karşı cihaz bu adı çoğu ağda çözemez.
 // Bu yüzden Cloudflare'in STUN sunucusundan (site zaten Cloudflare'de) cihazın dış adresi öğrenilir;
 // aynı evdeki iki cihaz bu adres üzerinden modem aracılığıyla buluşur. Dış adres karşı tarafa yalnız
-// iki cihaz aynı ağdaysa, yani karşı taraf o adresi zaten biliyorsa verilir:
-//  1. Teklif dış adres olmadan gider; yanında adres anahtarlarının 16 bitlik özeti bulunur.
-//  2. Yanıtlayan taraf, özeti tutan kendi dış adresini yanıta ekler. Kısa özet adresi ele vermez:
-//     aynı özete on binlerce adres düşer.
-//  3. Teklif eden taraf, gelen adresin anahtarı kendisininkiyle birebir aynıysa kendi dış adresini
-//     gönderir. Her iki taraf da yalnız kendi anahtarıyla birebir eşleşen adresleri kullanır.
+// iki cihaz aynı ağdaysa, yani karşı taraf o adresi zaten biliyorsa verilir. Adreslerin aynı olup
+// olmadığı CPace ile, adresler gösterilmeden anlaşılır (Baglanti.karsilastir); karşı taraf
+// bağlantı başına yalnız tek bir tahminin doğru olup olmadığını öğrenebilir:
+//  1. Teklif: SDP (dış adres olmadan) ve CPace iletisi.
+//  2. Yanıt: SDP, CPace iletisi ve yanıtlayanın etiketleri.
+//  3. Teklif eden taraf etiketleri denetler; tutan yuvalar için kendi dış adresini kendi
+//     etiketleriyle birlikte gönderir ("aday").
+//  4. Yanıtlayan taraf etiketleri denetler; tutan yuvalar için kendi dış adresini gönderir.
+// Her iki taraf da karşıdan yalnız tutan yuvadaki kendi anahtarıyla birebir aynı adresleri alır.
 const DOGRUDAN_DESTEK = typeof RTCPeerConnection === "function";
 const STUN = [{ urls: "stun:stun.cloudflare.com:3478" }];
 const DOGRUDAN_SURESI = 15000;          // bu sürede kurulamazsa denemekten vazgeçilir
@@ -730,12 +735,20 @@ function agAnahtari(adres) {
   return tam.slice(0, 4).map(x => parseInt(x, 16).toString(16)).join(":");
 }
 
-const anahtarlar = pc => [...new Set(pc.dis.map(a => agAnahtari(adayCoz(a.candidate).adres)))];
-
-async function anahtarOzeti(tuz, anahtar) {
-  const h = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${tuz} ${anahtar}`)));
-  return h[0] * 256 + h[1];
+// Karşılaştırmanın iki yuvası: ilk bulunan IPv4 dış adresi ve IPv6 ağ öneki; yoksa boş.
+function yuvaAnahtarlari(pc) {
+  const hepsi = pc.dis.map(a => agAnahtari(adayCoz(a.candidate).adres));
+  return [hepsi.find(a => !a.includes(":")) ?? "", hepsi.find(a => a.includes(":")) ?? ""];
 }
+
+// Tutan yuvaların (bit maskesi) anahtarları.
+const tutanAnahtarlar = (pc, maske) => yuvaAnahtarlari(pc).filter((a, i) => a && maske & (1 << i));
+
+// Bu cihazın, tutan yuvalardaki dış adresleri.
+const paylasilacaklar = (pc, maske) => {
+  const izinli = tutanAnahtarlar(pc, maske);
+  return pc.dis.filter(a => izinli.includes(agAnahtari(adayCoz(a.candidate).adres))).map(adayPaketi);
+};
 
 // Yerel ağ adresi: tarayıcının ".local" takma adı ya da özel aralıktaki adres (10/8, 172.16/12,
 // 192.168/16, IPv6'da fc00::/7 ve fe80::/10).
@@ -761,9 +774,9 @@ const yalnizYerel = sdp => sdp.split("\r\n").filter(l => {
 
 const adayPaketi = a => ({ candidate: a.candidate, sdpMid: a.sdpMid, sdpMLineIndex: a.sdpMLineIndex });
 
-// Karşıdan gelen dış adreslerden yalnız anahtarı bizimkiyle birebir aynı olanlar alınır.
+// Karşıdan gelen dış adreslerden yalnız anahtarı, tutan yuvadaki anahtarla birebir aynı olanlar alınır.
 function adaylarSec(liste, benim) {
-  if (!Array.isArray(liste)) return [];
+  if (!Array.isArray(liste) || !benim.length) return [];
   return liste.slice(0, 8).filter(a =>
     a && typeof a.candidate === "string" && a.candidate.startsWith("candidate:") && a.candidate.length < 512 &&
     adayCoz(a.candidate).tur === "srflx" && benim.includes(agAnahtari(adayCoz(a.candidate).adres))
@@ -828,9 +841,8 @@ async function dogrudanBaslat(oturum) {
     const pc = rtcOlustur(oturum);
     await pc.setLocalDescription(await pc.createOffer());
     await adaylarHazir(pc);
-    const tuz = [...crypto.getRandomValues(new Uint8Array(16))].map(b => b.toString(16).padStart(2, "0")).join("");
-    const ag = await Promise.all(anahtarlar(pc).map(a => anahtarOzeti(tuz, a)));
-    await rtcGonder(oturum, { tur: "teklif", sdp: yalnizYerel(pc.localDescription.sdp), tuz, ag });
+    pc.karsilastirma = oturum.baglanti.karsilastir(true, ...yuvaAnahtarlari(pc));
+    await rtcGonder(oturum, { tur: "teklif", sdp: yalnizYerel(pc.localDescription.sdp), cpace: pc.karsilastirma.ileti() });
   } catch (e) {
     console.error(e);
   }
@@ -845,25 +857,40 @@ async function rtcMesaji(oturum, baslik) {
       await pc.setRemoteDescription({ type: "offer", sdp: yalnizYerel(baslik.sdp) });
       await pc.setLocalDescription(await pc.createAnswer());
       await adaylarHazir(pc);
-      const ozetler = Array.isArray(baslik.ag) ? baslik.ag.slice(0, 8) : [];
-      const ortak = [];
-      if (typeof baslik.tuz === "string" && baslik.tuz.length <= 64) {
-        for (const a of pc.dis) {
-          if (ozetler.includes(await anahtarOzeti(baslik.tuz, agAnahtari(adayCoz(a.candidate).adres)))) ortak.push(adayPaketi(a));
-        }
+      const k = oturum.baglanti.karsilastir(false, ...yuvaAnahtarlari(pc));
+      pc.karsilastirma = k;
+      let etiket = null;
+      try {
+        etiket = k.etiketler(baslik.cpace);
+      } catch (e) {
+        console.error(e); // karşılaştırma olmaz; doğrudan bağlantı yalnız yerel adreslerle denenir
       }
-      await rtcGonder(oturum, { tur: "yanit", sdp: yalnizYerel(pc.localDescription.sdp), adaylar: ortak });
+      await rtcGonder(oturum, { tur: "yanit", sdp: yalnizYerel(pc.localDescription.sdp), cpace: k.ileti(), etiket });
     } else if (baslik.tur === "yanit" && typeof baslik.sdp === "string" && oturum.rol === "teklif" && pc?.signalingState === "have-local-offer") {
       await pc.setRemoteDescription({ type: "answer", sdp: yalnizYerel(baslik.sdp) });
-      const gelen = adaylarSec(baslik.adaylar, anahtarlar(pc));
-      for (const a of gelen) await pc.addIceCandidate(a);
-      if (gelen.length) {
-        const uyan = gelen.map(a => agAnahtari(adayCoz(a.candidate).adres));
-        const benim = pc.dis.filter(a => uyan.includes(agAnahtari(adayCoz(a.candidate).adres)));
-        await rtcGonder(oturum, { tur: "aday", adaylar: benim.map(adayPaketi) });
+      const k = pc.karsilastirma;
+      pc.karsilastirma = null;
+      try {
+        const etiket = k.etiketler(baslik.cpace);
+        pc.tutan = k.eslesenler(baslik.etiket);
+        await rtcGonder(oturum, { tur: "aday", etiket, adaylar: paylasilacaklar(pc, pc.tutan) });
+      } finally {
+        k.free();
       }
-    } else if (baslik.tur === "aday" && oturum.rol === "yanit" && pc?.signalingState === "stable") {
-      for (const a of adaylarSec(baslik.adaylar, anahtarlar(pc))) await pc.addIceCandidate(a);
+    } else if (baslik.tur === "aday" && oturum.rol === "teklif" && pc?.tutan) {
+      for (const a of adaylarSec(baslik.adaylar, tutanAnahtarlar(pc, pc.tutan))) await pc.addIceCandidate(a);
+    } else if (baslik.tur === "aday" && oturum.rol === "yanit" && pc?.karsilastirma && pc.signalingState === "stable") {
+      const k = pc.karsilastirma;
+      pc.karsilastirma = null;
+      let tutan;
+      try {
+        tutan = k.eslesenler(baslik.etiket);
+      } finally {
+        k.free();
+      }
+      if (!tutan) return;
+      for (const a of adaylarSec(baslik.adaylar, tutanAnahtarlar(pc, tutan))) await pc.addIceCandidate(a);
+      await rtcGonder(oturum, { tur: "aday", adaylar: paylasilacaklar(pc, tutan) });
     }
   } catch (e) {
     console.error(e);
@@ -1019,19 +1046,54 @@ function kodDuzelt(kod) {
 }
 
 // Eşleşme kodundan iki tarafın da aynı anahtarı türetmesi için. PBKDF2 (200 bin tur) deneme
-// yanılmayı yavaşlatır: kodu, açık anahtarından geriye doğru bulmak çok pahalı olur.
-async function kodTohumu(kod) {
+// yanılmayı yavaşlatır: kodu, açık anahtarından geriye doğru bulmak çok pahalı olur. Tuza kodun
+// gösterildiği 5 dakikalık dilim katılır; bütün kodlar için önceden hazırlanmış bir tablo yalnız
+// o dilimde işe yarar. Kodu yazan taraf dilimi bilmez, olası üç dilimi birden dener (kodlaBaglan).
+const KOD_DILIMI = 5 * 60000;
+const kodDilimi = () => Math.floor(Date.now() / KOD_DILIMI);
+
+async function kodTohumu(kod, dilim) {
   const malzeme = await crypto.subtle.importKey("raw", new TextEncoder().encode(kod), "PBKDF2", false, ["deriveBits"]);
   const bitler = await crypto.subtle.deriveBits(
-    { name: "PBKDF2", hash: "SHA-256", salt: new TextEncoder().encode("tulpar/kod/2"), iterations: 200000 },
+    { name: "PBKDF2", hash: "SHA-256", salt: new TextEncoder().encode(`tulpar/kod/3/${dilim}`), iterations: 200000 },
     malzeme, 256);
   return new Uint8Array(bitler);
 }
 
-// Bağlantının TLS oturumundan türetilir; araya biri girerse iki ekrandaki kod farklı olur.
-function dogrulamaKodu(baglanti) {
-  return gruplara(baglanti.dogrulama(), 3);
+// --- Doğrulama kodu ---
+
+// Kod, bağlantının TLS oturumundan ve iki tarafın 32 baytlık rastgele değerlerinden türetilir
+// (Baglanti.dogrulama). Bağlanan taraf değerinin özetini tanışma mesajında gönderir (taahhüt),
+// kabul eden taraf kendi değerini gönderir, bağlanan taraf ancak bundan sonra kendi değerini açar.
+// Araya giren biri kodları deneme yanılmayla eşitleyemez; iki ekrandaki kodun tutma olasılığı
+// milyonda birdir. Özeti ya da değeri göndermeyen (eski sürüm ya da sahte) taraf kabul edilmez.
+const rastgeleDeger = () => crypto.getRandomValues(new Uint8Array(32));
+const onaltili = b => [...b].map(x => x.toString(16).padStart(2, "0")).join("");
+
+async function taahhut(deger) {
+  const veri = birlestir(new TextEncoder().encode("tulpar taahhut 1 "), deger);
+  return onaltili(new Uint8Array(await crypto.subtle.digest("SHA-256", veri)));
 }
+
+function degerCoz(metin) {
+  if (typeof metin !== "string" || !/^[0-9a-f]{64}$/.test(metin)) return null;
+  return new Uint8Array(metin.match(/../g).map(h => parseInt(h, 16)));
+}
+
+async function degerGonder(baglanti, deger) {
+  const gonderici = await baglanti.akis_ac();
+  await gonderici.yaz(cerceve({ tip: "dogrulama", deger: onaltili(deger) }));
+  gonderici.bitir().catch(() => {});
+}
+
+// Karşının açtığı bir sonraki akışın başlığı; bağlantı kapandıysa { neden }.
+async function sonrakiBaslik(baglanti) {
+  const alici = await baglanti.akis_bekle();
+  if (!alici) return { neden: await baglanti.kapanis() };
+  return (await basligiOku(alici)).baslik;
+}
+
+const dogrulamaKodu = (baglanti, bagliDeger, kabulDegeri) => gruplara(baglanti.dogrulama(bagliDeger, kabulDegeri), 3);
 
 // --- Bağlantı ---
 
@@ -1079,7 +1141,7 @@ function baglandi(oturum) {
   $("yeniden").hidden = true;
   $("paylasim").hidden = false;
   $("kes").hidden = false;
-  $("dogrulama-kodu").textContent = dogrulamaKodu(oturum.baglanti);
+  $("dogrulama-kodu").textContent = oturum.kod;
   $("dogrulama").hidden = false;
   almaDongusu(oturum);
   yolYaz(oturum);
@@ -1216,9 +1278,29 @@ async function gelenBaglanti(gelen, d) {
       baglanti.kapat(REDDEDILDI);
       return;
     }
+    // Doğrulama değerleri: bağlananın özeti tanışma mesajındaydı; bu taraf kendi değerini gönderir,
+    // karşı taraf kendi değerini açar ve özetle karşılaştırılır.
+    let kod;
+    try {
+      const karsiTaahhut = baslik.taahhut;
+      if (typeof karsiTaahhut !== "string" || !/^[0-9a-f]{64}$/.test(karsiTaahhut)) {
+        baglanti.kapat(ESKI);
+        return;
+      }
+      const benimDeger = rastgeleDeger();
+      await degerGonder(baglanti, benimDeger);
+      const acilan = await zamanAsimi(sonrakiBaslik(baglanti), TANITIM_SURESI);
+      const karsiDeger = acilan.tip === "dogrulama" ? degerCoz(acilan.deger) : null;
+      if (!karsiDeger || (await taahhut(karsiDeger)) !== karsiTaahhut) throw new Error("Doğrulama değeri özetle uyuşmuyor");
+      kod = dogrulamaKodu(baglanti, karsiDeger, benimDeger);
+    } catch (e) {
+      console.error(e);
+      baglanti.kapat(KAPANDI);
+      return;
+    }
     const sor = kodla || qrIle || onayGerekliMi() || (mevcut && mevcut.karsiKimlik !== karsiKimlik);
     if (sor) {
-      const kabul = await onaySor(ad, dogrulamaKodu(baglanti), baglanti);
+      const kabul = await onaySor(ad, kod, baglanti);
       if (kabul !== true) {
         if (kabul !== MESGUL) engellenenler.set(karsiKimlik, Date.now() + ENGEL_SURESI);
         baglanti.kapat(kabul === MESGUL ? MESGUL : REDDEDILDI);
@@ -1246,7 +1328,7 @@ async function gelenBaglanti(gelen, d) {
       console.error(e);
       return;
     }
-    baglandi({ baglanti, ad, karsiKimlik, yeniden: null, dugum: d, rol: "yanit", karsiDogrudan: baslik.dogrudan === 1 });
+    baglandi({ baglanti, ad, karsiKimlik, kod, yeniden: null, dugum: d, rol: "yanit", karsiDogrudan: baslik.dogrudan === 1 });
   } finally {
     bekleyenBaglanti--;
   }
@@ -1281,12 +1363,19 @@ function adresGecerli(adres) {
   return /^[0-9a-f]{64}$/.test(kimlik) && !fazla.length && (relay === "" || Object.values(RELAY_HARFLERI).includes(relay));
 }
 
+// `bilet` birden çok olası bilet de olabilir (kodla bağlanma); ilk kurulan bağlantı kullanılır.
 function baglanZamanli(bilet, ms) {
   let gecKaldi = false;
-  const soz = dugum.baglan(tumRelaylerle(bilet));
-  // Süre dolduktan sonra kurulan bağlantıyı bekleyen yok; açık kalmasın.
-  soz.then(b => { if (gecKaldi) b.kapat(KAPANDI); }, () => {});
-  return zamanAsimi(soz, ms).catch(e => {
+  let kazanan = null;
+  const sozler = (Array.isArray(bilet) ? bilet : [bilet]).map(b => dugum.baglan(tumRelaylerle(b)));
+  // Süre dolduktan sonra ya da ikinci olarak kurulan bağlantıyı bekleyen yok; açık kalmasın.
+  for (const soz of sozler) {
+    soz.then(b => {
+      if (gecKaldi || kazanan) b.kapat(KAPANDI);
+      else kazanan = b;
+    }, () => {});
+  }
+  return zamanAsimi(Promise.any(sozler), ms).catch(e => {
     gecKaldi = true;
     throw e;
   });
@@ -1306,24 +1395,34 @@ async function kur(bilet, ms, sir, gecis = false) {
 async function kurIc(bilet, ms, sir, gecis) {
   const baglanti = await baglanZamanli(bilet, ms);
   try {
-    await tanitimGonder(baglanti, sir ? { sir } : {});
-    // Karşıda onay sorulursa iki ekrandaki kod karşılaştırılabilsin.
-    $("dogrulama-kodu").textContent = dogrulamaKodu(baglanti);
-    $("dogrulama").hidden = false;
+    const benimDeger = rastgeleDeger();
+    await tanitimGonder(baglanti, { ...(sir ? { sir } : {}), taahhut: await taahhut(benimDeger) });
     durumYaz("Diğer cihazın onayı bekleniyor…");
+    let kod;
     const sonuc = await zamanAsimi((async () => {
-      const alici = await baglanti.akis_bekle();
-      if (!alici) return { neden: await baglanti.kapanis() };
-      const { baslik } = await basligiOku(alici);
-      return baslik.tip === "tanitim" ? baslik : { neden: "beklenmeyen" };
+      // Önce karşının doğrulama değeri gelir; bu taraf kendi değerini ancak ondan sonra açar.
+      const deger = await sonrakiBaslik(baglanti);
+      if (deger.tip === "tanitim") return { neden: ESKI };
+      const karsiDeger = deger.tip === "dogrulama" ? degerCoz(deger.deger) : null;
+      if (!karsiDeger) return deger.neden ? deger : { neden: "beklenmeyen" };
+      await degerGonder(baglanti, benimDeger);
+      kod = dogrulamaKodu(baglanti, benimDeger, karsiDeger);
+      // Karşıda onay sorulursa iki ekrandaki kod karşılaştırılabilsin.
+      $("dogrulama-kodu").textContent = kod;
+      $("dogrulama").hidden = false;
+      const baslik = await sonrakiBaslik(baglanti);
+      return baslik.tip === "tanitim" || baslik.neden ? baslik : { neden: "beklenmeyen" };
     })(), ONAY_SURESI);
     if (sonuc.tip !== "tanitim") {
       baglanti.kapat(KAPANDI);
       if (!mevcut) $("dogrulama").hidden = true;
-      return sonuc.neden === REDDEDILDI ? "reddedildi" : sonuc.neden === MESGUL ? "mesgul" : "basarisiz";
+      return sonuc.neden === REDDEDILDI ? "reddedildi" : sonuc.neden === MESGUL ? "mesgul"
+        : sonuc.neden === ESKI ? "eski" : "basarisiz";
     }
-    // Karşı taraf asıl adresini bildirir; yeniden bağlanmalarda o kullanılır.
-    const yeniden = adresGecerli(sonuc.adres) ? sonuc.adres : bilet;
+    // Karşı taraf asıl adresini bildirir; yeniden bağlanmalarda o kullanılır. Kodla bağlanmada
+    // (birden çok olası bilet) asıl adres zorunludur.
+    const yeniden = adresGecerli(sonuc.adres) ? sonuc.adres : Array.isArray(bilet) ? null : bilet;
+    if (!yeniden) throw new Error("Asıl adres gelmedi");
     hafizaYaz(BILET_HAFIZASI, yeniden);
     if (yeniden.split("~")[0] !== baglanti.karsi_kimlik()) {
       // Kodla eşleşme kabul edildi: koddan türetilen adresten karşının asıl adresine geçilir.
@@ -1333,7 +1432,7 @@ async function kurIc(bilet, ms, sir, gecis) {
       durumYaz("Bağlanılıyor…");
       return kur(yeniden, ms, undefined, true);
     }
-    baglandi({ baglanti, ad: adDuzelt(sonuc.ad), karsiKimlik: baglanti.karsi_kimlik(), yeniden, dugum: null, rol: "teklif", karsiDogrudan: sonuc.dogrudan === 1 });
+    baglandi({ baglanti, ad: adDuzelt(sonuc.ad), karsiKimlik: baglanti.karsi_kimlik(), kod, yeniden, dugum: null, rol: "teklif", karsiDogrudan: sonuc.dogrudan === 1 });
     return "tamam";
   } catch (e) {
     baglanti.kapat(KAPANDI);
@@ -1343,6 +1442,7 @@ async function kurIc(bilet, ms, sir, gecis) {
 }
 
 const MESGUL_METNI = "Diğer cihaz başka bir isteği yanıtlıyor. Biraz sonra tekrar deneyin.";
+const ESKI_METNI = "Diğer cihazdaki Tulpar sayfası eski bir sürüm. O sayfayı yenileyin.";
 
 function reddedildiYaz(bilet, hataMetni) {
   durumYaz("Bağlantı isteği reddedildi.", "hata");
@@ -1356,12 +1456,15 @@ async function kendiligindenBaglan(bilet) {
   const hataMetni = "Bağlanılamadı. Diğer cihazdaki sayfa açık mı?";
   const baslangic = Date.now();
   let ara = 2000;
+  let eski = false;
   for (let deneme = 1; Date.now() - baslangic < YENIDEN_TOPLAM_SURE; deneme++) {
     while (document.hidden) await bekle(1000);
     if (mevcut || bilerekKesildi) return;
-    durumYaz(`Bağlantı koptu. Yeniden bağlanılıyor… (${deneme}. deneme)`, "hata");
+    if (!eski) durumYaz(`Bağlantı koptu. Yeniden bağlanılıyor… (${deneme}. deneme)`, "hata");
     try {
       const sonuc = await kur(bilet, YENIDEN_SURESI);
+      // Diğer sayfa yenilenince aynı kimlikle açılır; denemeye devam edilir.
+      eski = sonuc === "eski";
       if (sonuc === "tamam") return;
       if (sonuc === "reddedildi") {
         reddedildiYaz(bilet, hataMetni);
@@ -1375,7 +1478,7 @@ async function kendiligindenBaglan(bilet) {
     const sonraki = Date.now() + ara;
     while (Date.now() < sonraki) {
       if (mevcut || bilerekKesildi) return;
-      durumYaz(`Bağlantı koptu. Yeniden bağlanmaya kalan süre: ${sureYaz(sonraki - Date.now())}`, "hata");
+      durumYaz(eski ? ESKI_METNI : `Bağlantı koptu. Yeniden bağlanmaya kalan süre: ${sureYaz(sonraki - Date.now())}`, "hata");
       await bekle(Math.min(1000, sonraki - Date.now()));
     }
     ara = Math.min(ara * 2, YENIDEN_EN_UZUN_ARA);
@@ -1395,6 +1498,11 @@ async function bilettenBaglan(bilet, hataMetni, sir) {
     if (sonuc === "tamam") return true;
     if (sonuc === "reddedildi") {
       reddedildiYaz(bilet, hataMetni);
+      return false;
+    }
+    if (sonuc === "eski") {
+      durumYaz(ESKI_METNI, "hata");
+      $("yeniden").hidden = false;
       return false;
     }
     if (sonuc === "mesgul") {
@@ -1422,7 +1530,7 @@ async function kodGoster() {
   let yeni;
   let gecKaldi = false;
   try {
-    const soz = kodTohumu(kod).then(t => Dugum.baslat(t));
+    const soz = kodTohumu(kod, kodDilimi()).then(t => Dugum.baslat(t));
     // Süre dolduktan sonra açılan uç nokta sahipsiz kalmasın.
     soz.then(d => { if (gecKaldi) d.kapat(); }, () => {});
     yeni = await zamanAsimi(soz, BASLAMA_SURESI).catch(e => {
@@ -1486,7 +1594,11 @@ async function kodlaBaglan(girilen) {
     return;
   }
   durumYaz("Kod hazırlanıyor…");
-  const bilet = Dugum.koddan_bilet(await kodTohumu(kod));
+  // Kod, gösterildiği dilime göre türetildi: 5 dakika geçerli olduğu için o dilim bu dilim ya da
+  // bir önceki olabilir; saat farkı için bir sonraki de denenir.
+  const simdi = kodDilimi();
+  const tohumlar = await Promise.all([simdi, simdi - 1, simdi + 1].map(d => kodTohumu(kod, d)));
+  const bilet = tohumlar.map(t => Dugum.koddan_bilet(t));
   $("baglan").hidden = true;
   if (!(await bilettenBaglan(bilet, "Bağlanılamadı. Kodu ve diğer cihazdaki sayfanın açık olduğunu kontrol edin."))) {
     $("baglan").hidden = false;
