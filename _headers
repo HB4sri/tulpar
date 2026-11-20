@@ -1,11 +1,11 @@
-# Cloudflare Pages yanıt başlıkları (tulpar.page). GitHub Pages bu dosyayı yok sayar; orada
-# index.html'deki meta CSP ve çerçeve denetimi geçerlidir.
+# Cloudflare Pages yanıt başlıkları (tulpar.page). Kamera ve mikrofon kapalıdır: tarayıcılar kamera
+# izni verilmiş sitelerde yerel IP adresini gizlemeyi bırakır; Tulpar kamera kullanmaz.
 /*
   X-Content-Type-Options: nosniff
   Referrer-Policy: no-referrer
   X-Frame-Options: DENY
   Cross-Origin-Opener-Policy: same-origin
-  Permissions-Policy: geolocation=(), payment=(), usb=(), serial=(), bluetooth=()
+  Permissions-Policy: camera=(), microphone=(), display-capture=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=()
   Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self' https://*.relay.n0.iroh.link wss://*.relay.n0.iroh.link; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; manifest-src 'self'
   Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
   Cache-Control: no-cache, max-age=0, must-revalidate

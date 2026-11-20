@@ -1,3 +1,8 @@
+// QR'dan gelen bilgi (#…) her şeyden önce belleğe alınır ve adres çubuğundan silinir; sayfanın
+// geri kalanı yüklenemese de adres çubuğunda kalmaz. Bu kısım hiçbir sunucuya gitmez.
+const ILK_ADRES_BILGISI = location.hash.slice(1);
+if (ILK_ADRES_BILGISI) history.replaceState(null, "", location.pathname + location.search);
+
 // Yayında dosya adresleri sürümle (?v=) istenir; önbellekte eski çekirdek ile yeni sayfa karışmasın.
 const SURUM = new URL(import.meta.url).searchParams.get("v") ?? "";
 const pkgAdresi = ad => new URL(`./pkg/${ad}?v=${SURUM}`, import.meta.url).href;
@@ -80,6 +85,43 @@ function base64url(baytlar) {
   return btoa(String.fromCharCode(...baytlar)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
+// Sekme çoğaltılırsa ("Sekmeyi çoğalt") sekme hafızası da kopyalanır ve iki sekme aynı kimlikle
+// çalışıp birbirinin bağlantısını bozar. Açılışta aynı sekme numarasını taşıyan başka bir açık sekme
+// olup olmadığı sorulur; varsa bu sekme hafızayı temizleyip yeni bir kimlik alır. Sayfa
+// yenilendiğinde eski sayfa kapanmış olduğu için yanıt gelmez ve kimlik korunur.
+const SEKME_HAFIZASI = "tulpar-sekme";
+const sekmeKanali = typeof BroadcastChannel === "function" ? new BroadcastChannel("tulpar-sekme") : null;
+let sekmeNo = hafizaOku(SEKME_HAFIZASI);
+
+function baskaSekmedeMi(no) {
+  if (!sekmeKanali || !no) return Promise.resolve(false);
+  return new Promise(coz => {
+    const bitir = sonuc => {
+      clearTimeout(zaman);
+      sekmeKanali.removeEventListener("message", dinle);
+      coz(sonuc);
+    };
+    const dinle = e => { if (e.data?.var === no) bitir(true); };
+    const zaman = setTimeout(() => bitir(false), 300);
+    sekmeKanali.addEventListener("message", dinle);
+    sekmeKanali.postMessage({ soru: no });
+  });
+}
+
+async function sekmeyiHazirla() {
+  if (await baskaSekmedeMi(sekmeNo)) {
+    hafizaSil(ANAHTAR_HAFIZASI, SIR_HAFIZASI, BILET_HAFIZASI, KARSI_HAFIZASI, ONAY_HAFIZASI);
+    sekmeNo = null;
+  }
+  if (!sekmeNo) {
+    sekmeNo = onaltilik(crypto.getRandomValues(new Uint8Array(8)));
+    hafizaYaz(SEKME_HAFIZASI, sekmeNo);
+  }
+  sekmeKanali?.addEventListener("message", e => {
+    if (e.data?.soru === sekmeNo) sekmeKanali.postMessage({ var: sekmeNo });
+  });
+}
+
 // Bu sekmenin 32 baytlık gizli anahtarı. Tarayıcının güvenli rastgele sayı üretecinden gelir.
 function sekmeAnahtari() {
   const kayitli = hafizaOku(ANAHTAR_HAFIZASI);
@@ -106,6 +148,56 @@ function qrSirri() {
 function qrYenile() {
   hafizaSil(SIR_HAFIZASI);
   if (dugum) qrGoster();
+}
+
+// Sekmenin kimliği (anahtarı) boştayken QR ile birlikte yenilenir: eski bir QR'ı gören ya da daha
+// önce eşleşmiş biri bu sekmeye istek yağdırıp yeni eşleşmeleri engelleyemesin. Bağlı bir cihaz,
+// ekranda soru, bu sekmeden süren bir bağlanma, açık bir kod ya da yeniden bağlanabilecek bir cihaz
+// varken (bağlantı bittikten sonra YENIDEN_TOPLAM_SURE boyunca) kimlik korunur. Yarım kalmış gelen
+// istekler yenilemeyi durdurmaz: engelleme denemesi tam olarak böyle isteklerle yapılır.
+let sonBaglantiBitisi = 0;
+let disariBaglanan = 0;
+let kimlikYenileniyor = false;
+
+function kimlikYenilenebilir() {
+  return !mevcut && !bekleyenOnay && !disariBaglanan && !kodDugumu &&
+    !hafizaOku(BILET_HAFIZASI) && Date.now() - sonBaglantiBitisi > YENIDEN_TOPLAM_SURE;
+}
+
+async function kimlikYenile() {
+  kimlikYenileniyor = true;
+  qrBitis = 0;
+  let gecKaldi = false;
+  try {
+    const anahtar = crypto.getRandomValues(new Uint8Array(32));
+    const soz = Dugum.baslat(anahtar);
+    soz.then(d => { if (gecKaldi) d.kapat(); }, () => {});
+    const yeni = await zamanAsimi(soz, BASLAMA_SURESI).catch(e => {
+      gecKaldi = true;
+      throw e;
+    });
+    if (!kimlikYenilenebilir()) {
+      yeni.kapat();
+    } else {
+      const eski = dugum;
+      dugum = yeni;
+      hafizaYaz(ANAHTAR_HAFIZASI, onaltilik(anahtar));
+      hafizaSil(KARSI_HAFIZASI, ONAY_HAFIZASI);
+      gelenleriBekle(yeni);
+      eski.kapat();
+    }
+  } catch (e) {
+    console.error(e);
+  } finally {
+    kimlikYenileniyor = false;
+    qrYenile();
+  }
+}
+
+function qrSuresiDoldu() {
+  if (kimlikYenileniyor) return;
+  if (kimlikYenilenebilir()) kimlikYenile();
+  else qrYenile();
 }
 
 // Bağlantı bilerek kesildiyse (hangi taraf keserse kessin) bir sonraki istek onay ister.
@@ -141,11 +233,17 @@ function adKaydet(ad) {
   try { localStorage.setItem(AD_HAFIZASI, ad); } catch {}
 }
 
-// Karşıdan gelen ad güvenilmez veridir: yalnız textContent ile gösterilir, denetim ve yön
-// karakterleri atılır, kısaltılır.
+// Karşıdan gelen adlardan atılan karakterler: denetim karakterleri (C0, C1), yazı yönünü değiştiren
+// işaretler (ör. uzantıyı gizleyen U+202E, U+061C), sıfır genişlikli ve boş görünen karakterler
+// (ör. U+200B, U+2800, U+3164) ve Unicode etiket karakterleri. Görünmez karakterlerle bir dosya
+// adının sonundaki uzantı gözden kaçırılamasın.
+const GORUNMEZ = /[\u0000-\u001f\u007f-\u009f­͏؜ᅟᅠ឴឵᠋-᠏​-‏‪-‮⁠-⁯⠀ㅤ﻿ﾠ￰-￸\u{1d173}-\u{1d17a}\u{e0000}-\u{e007f}]/gu;
+
+// Karşıdan gelen ad güvenilmez veridir: yalnız textContent ile gösterilir, görünmez karakterler
+// atılır, boşluklar teke indirilir, kısaltılır.
 function adDuzelt(ad) {
   return String(ad ?? "")
-    .replace(/[\u0000-\u001f\u007f‎‏‪-‮⁦-⁩]/g, "")
+    .replace(GORUNMEZ, "")
     .replace(/\s+/g, " ").trim().slice(0, 40) || "Adsız cihaz";
 }
 
@@ -179,7 +277,7 @@ function sureYaz(ms) {
 function surelerGuncelle() {
   const simdi = Date.now();
   if (qrBitis && simdi >= qrBitis && !bekleyenOnay) {
-    qrYenile();
+    qrSuresiDoldu();
     return;
   }
   if (qrBitis) $("qr-sure").textContent = `Yenilenmesine kalan süre: ${sureYaz(qrBitis - simdi)}`;
@@ -252,11 +350,12 @@ async function basligiOku(alici) {
   return { baslik, ilk: tampon.slice(4 + uzunluk) };
 }
 
-// Karşıdan gelen dosya adı: denetim ve yön karakterleri (ör. uzantıyı gizleyen U+202E) atılır,
+// Karşıdan gelen dosya adı: görünmez karakterler (GORUNMEZ) atılır, boşluklar teke indirilir,
 // yol ve sistem için sorunlu karakterler "_" olur, uzunluk sınırlanır.
 function dosyaAdiDuzelt(ad) {
   let temiz = String(ad ?? "")
-    .replace(/[\u0000-\u001f\u007f‎‏‪-‮⁦-⁩]/g, "")
+    .replace(GORUNMEZ, "")
+    .replace(/\s+/g, " ")
     .replace(/[\\/:*?"<>|]/g, "_")
     .replace(/^[\s.]+|[\s.]+$/g, "");
   if (temiz.length > 150) {
@@ -352,16 +451,36 @@ function satirEkle(yon, ad, boyut, oturum) {
       metin.textContent = m;
       ek.textContent = "";
     },
+    not(m) {
+      const p = document.createElement("p");
+      p.className = "not kucuk";
+      p.textContent = m;
+      li.append(p);
+    },
   };
 }
 
+// Açılınca program çalıştıran ya da tarayıcıda açılınca kod çalıştırabilen dosya türleri. Alınan
+// böyle bir dosyanın satırında not gösterilir; dosya engellenmez.
+const PROGRAM_UZANTILARI = new Set([
+  "exe", "com", "pif", "msi", "msix", "appx", "bat", "cmd", "ps1", "vbs", "vbe", "js", "jse", "wsf",
+  "scr", "lnk", "url", "hta", "jar", "reg", "app", "dmg", "pkg", "command", "apk", "html", "htm",
+  "xhtml", "mht", "mhtml", "svg",
+]);
+const programMi = ad => PROGRAM_UZANTILARI.has(ad.split(".").pop().toLowerCase()) && ad.includes(".");
+
 // --- Gönderme ---
 
-async function dosyaGonder(dosya) {
-  // Kuyruğa eklendiği andaki değil, gönderim anındaki bağlantı kullanılır.
+// Dosya, sıraya eklendiği andaki cihaza gider. Bağlantı koptuktan sonra aynı cihaza yeniden
+// bağlanıldıysa yeni bağlantı kullanılır; bu arada başka bir cihaz bağlandıysa gönderilmez.
+async function dosyaGonder(dosya, hedef) {
   const oturum = mevcut;
   if (!oturum) {
-    satirEkle("giden", dosya.name, dosya.size, { ad: "—", karsiKimlik: "" }).hata("Gönderilemedi: Bağlantı yok");
+    satirEkle("giden", dosya.name, dosya.size, hedef).hata("Gönderilemedi: Bağlantı yok");
+    return;
+  }
+  if (oturum.karsiKimlik !== hedef.karsiKimlik) {
+    satirEkle("giden", dosya.name, dosya.size, hedef).hata("Bağlı cihaz değiştiği için gönderilmedi");
     return;
   }
   const satir = satirEkle("giden", dosya.name, dosya.size, oturum);
@@ -414,8 +533,9 @@ async function irohGonder(oturum, dosya, satir) {
 
 function dosyalariSirala(dosyalar) {
   if (!mevcut) return;
+  const hedef = { karsiKimlik: mevcut.karsiKimlik, ad: mevcut.ad };
   for (const dosya of dosyalar) {
-    gonderimKuyrugu = gonderimKuyrugu.then(() => dosyaGonder(dosya));
+    gonderimKuyrugu = gonderimKuyrugu.then(() => dosyaGonder(dosya, hedef));
   }
 }
 
@@ -427,16 +547,58 @@ async function tanitimGonder(baglanti, ek = {}) {
 
 // --- Alma ---
 
+// Alınan dosyalar kaydedilene ya da listeden kaldırılana kadar bellekte durur. Toplamları ve aynı
+// anda alınan dosya sayısı sınırlıdır; bağlı cihaz sekmeyi belleği doldurarak çökertemesin.
+const TOPLAM_SINIR = IOS ? 600 * 1024 ** 2 : 2 * 1024 ** 3;
+const EN_COK_ALINAN = 2; // dosyalar sırayla gönderildiği için normal kullanımda aşılmaz
+let alinanSayisi = 0;
+let bellektekiBayt = 0;  // alınmakta olan ve bellekte tutulan dosyaların toplamı
+const bellekPayi = new Map(); // Kaydet bağlantısı -> bellekte tuttuğu bayt
+
+// Gelen dosya için yer ayırır ve satırını açar. Sınırı aşıyorsa nedeni yazar ve null döner.
+function alimaBasla(ad, boyut, oturum) {
+  if (!Number.isSafeInteger(boyut) || boyut < 0 || boyut > EN_BUYUK_DOSYA) {
+    satirEkle("gelen", ad, 0, oturum).hata(`Alınmadı: Dosya ${boyutYaz(EN_BUYUK_DOSYA)} sınırını aşıyor`);
+    return null;
+  }
+  if (alinanSayisi >= EN_COK_ALINAN) return null;
+  if (bellektekiBayt + boyut > TOPLAM_SINIR) {
+    satirEkle("gelen", ad, boyut, oturum)
+      .hata(`Alınmadı: Alınan dosyalar ${boyutYaz(TOPLAM_SINIR)} sınırını aşıyor. Listeden dosya kaldırarak yer açın.`);
+    return null;
+  }
+  alinanSayisi++;
+  bellektekiBayt += boyut;
+  aktarimBasladi();
+  return satirEkle("gelen", ad, boyut, oturum);
+}
+
+// Alım bitti; dosya oluşmadıysa ayrılan yer geri verilir (oluştuysa Kaydet bağlantısı tutar).
+function alimBitti(boyut, oldu) {
+  alinanSayisi--;
+  if (!oldu) bellektekiBayt -= boyut;
+  aktarimBitti();
+}
+
+// Alınan dosyanın bellekteki kopyasını bırakır.
+function bellegiBirak(a) {
+  URL.revokeObjectURL(a.href);
+  kaydedilmemis.delete(a);
+  if (bellekPayi.has(a)) {
+    bellektekiBayt -= bellekPayi.get(a);
+    bellekPayi.delete(a);
+  }
+}
+
 async function dosyaAl(alici, baslik, ilk, oturum) {
   const ad = dosyaAdiDuzelt(baslik.ad);
   const boyut = baslik.boyut;
-  if (!Number.isSafeInteger(boyut) || boyut < 0 || boyut > EN_BUYUK_DOSYA) {
+  const satir = alimaBasla(ad, boyut, oturum);
+  if (!satir) {
     alici.iptal();
-    satirEkle("gelen", ad, 0, oturum).hata(`Alınmadı: Dosya ${boyutYaz(EN_BUYUK_DOSYA)} sınırını aşıyor`);
     return;
   }
-  const satir = satirEkle("gelen", ad, boyut, oturum);
-  aktarimBasladi();
+  let oldu = false;
   try {
     const parcalar = [ilk];
     let alinan = ilk.length;
@@ -453,17 +615,18 @@ async function dosyaAl(alici, baslik, ilk, oturum) {
       satir.ilerle(alinan);
     }
     if (alinan !== boyut) throw new Error("Dosya eksik geldi");
-    dosyaHazir(parcalar, ad, satir);
+    dosyaHazir(parcalar, ad, satir, boyut);
+    oldu = true;
   } catch (e) {
     console.error(e);
     satir.hata("Aktarım yarıda kesildi");
   } finally {
-    aktarimBitti();
+    alimBitti(boyut, oldu);
   }
 }
 
 // Alınan parçalardan dosyayı oluşturur ve satıra Kaydet bağlantısını koyar.
-function dosyaHazir(parcalar, ad, satir) {
+function dosyaHazir(parcalar, ad, satir, boyut) {
   // Tür her zaman ikili dosya: karşının verdiği tür (ör. text/html) sayfada açılıp çalışmasın.
   const blob = new Blob(parcalar, { type: "application/octet-stream" });
   const a = document.createElement("a");
@@ -474,14 +637,17 @@ function dosyaHazir(parcalar, ad, satir) {
   // Dosya kendiliğinden inmez; kullanıcı Kaydet'e basar. Kaydedildikten bir dakika sonra
   // bellekteki kopya bırakılır.
   kaydedilmemis.add(a);
+  bellekPayi.set(a, boyut);
   a.addEventListener("click", () => {
     kaydedilmemis.delete(a);
     setTimeout(() => {
-      URL.revokeObjectURL(a.href);
+      if (!bellekPayi.has(a)) return; // bu arada listeden kaldırıldı
+      bellegiBirak(a);
       a.replaceWith("Kaydedildi");
     }, 60000);
   }, { once: true });
   satir.tamam("Alındı", a);
+  if (programMi(ad)) satir.not("Program dosyası: Yalnızca güvendiğiniz bir kaynaktan geldiyse açın.");
 }
 
 async function almaDongusu(oturum) {
@@ -571,8 +737,27 @@ async function anahtarOzeti(tuz, anahtar) {
   return h[0] * 256 + h[1];
 }
 
-// SDP'den dış adres (srflx) satırları çıkarılır; bunlar ayrıca ve yalnız aynı ağda paylaşılır.
-const disSiz = sdp => sdp.split("\r\n").filter(l => !(l.startsWith("a=candidate:") && adayCoz(l).tur === "srflx")).join("\r\n");
+// Yerel ağ adresi: tarayıcının ".local" takma adı ya da özel aralıktaki adres (10/8, 172.16/12,
+// 192.168/16, IPv6'da fc00::/7 ve fe80::/10).
+function yerelAdresMi(adres) {
+  if (/^[0-9a-z-]+\.local$/i.test(adres)) return true;
+  const v4 = adres.match(/^(\d{1,3})\.(\d{1,3})\.\d{1,3}\.\d{1,3}$/);
+  if (v4) {
+    const a = Number(v4[1]), b = Number(v4[2]);
+    return a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
+  }
+  return /^f[cd][0-9a-f]{2}:/i.test(adres) || /^fe[89ab][0-9a-f]:/i.test(adres);
+}
+
+// İki yönde de SDP'de yalnız yerel ağ adresli "host" adayları bırakılır. Dış adres (srflx) ayrıca
+// ve yalnız aynı ağda paylaşılır (adaylarSec). Karşının yazdığı başka her aday (genel adres, relay,
+// prflx) atılır: tarayıcı oraya paket göndermez, IP adresi de karşıya gitmez. Giden SDP'den de
+// genel adresler (ör. gizlenmemiş IPv6 adresi) çıkar.
+const yalnizYerel = sdp => sdp.split("\r\n").filter(l => {
+  if (!l.startsWith("a=candidate:")) return true;
+  const { adres, tur } = adayCoz(l);
+  return tur === "host" && yerelAdresMi(adres);
+}).join("\r\n");
 
 const adayPaketi = a => ({ candidate: a.candidate, sdpMid: a.sdpMid, sdpMLineIndex: a.sdpMLineIndex });
 
@@ -620,9 +805,17 @@ function rtcOlustur(oturum) {
   pc.onconnectionstatechange = () => {
     if (pc.connectionState === "failed" || pc.connectionState === "closed") dogrudanKapat(oturum, pc);
   };
+  // Aynı anda açık gelen dosya kanalı sayısı sınırlıdır (alma sınırıyla aynı).
+  let gelenKanal = 0;
   pc.ondatachannel = e => {
-    if (e.channel.label === "dosya") dogrudanAl(e.channel, oturum);
-    else e.channel.close();
+    const kanal = e.channel;
+    if (kanal.label !== "dosya" || gelenKanal >= EN_COK_ALINAN) {
+      kanal.close();
+      return;
+    }
+    gelenKanal++;
+    kanal.addEventListener("close", () => { gelenKanal--; }, { once: true });
+    dogrudanAl(kanal, oturum);
   };
   oturum.baglanti.kapanis().then(() => dogrudanKapat(oturum, pc));
   setTimeout(() => { if (!oturum.dogrudan) dogrudanKapat(oturum, pc); }, DOGRUDAN_SURESI);
@@ -637,7 +830,7 @@ async function dogrudanBaslat(oturum) {
     await adaylarHazir(pc);
     const tuz = [...crypto.getRandomValues(new Uint8Array(16))].map(b => b.toString(16).padStart(2, "0")).join("");
     const ag = await Promise.all(anahtarlar(pc).map(a => anahtarOzeti(tuz, a)));
-    await rtcGonder(oturum, { tur: "teklif", sdp: disSiz(pc.localDescription.sdp), tuz, ag });
+    await rtcGonder(oturum, { tur: "teklif", sdp: yalnizYerel(pc.localDescription.sdp), tuz, ag });
   } catch (e) {
     console.error(e);
   }
@@ -649,7 +842,7 @@ async function rtcMesaji(oturum, baslik) {
     const pc = oturum.pc;
     if (baslik.tur === "teklif" && typeof baslik.sdp === "string" && oturum.rol === "yanit" && !pc) {
       const pc = rtcOlustur(oturum);
-      await pc.setRemoteDescription({ type: "offer", sdp: disSiz(baslik.sdp) });
+      await pc.setRemoteDescription({ type: "offer", sdp: yalnizYerel(baslik.sdp) });
       await pc.setLocalDescription(await pc.createAnswer());
       await adaylarHazir(pc);
       const ozetler = Array.isArray(baslik.ag) ? baslik.ag.slice(0, 8) : [];
@@ -659,9 +852,9 @@ async function rtcMesaji(oturum, baslik) {
           if (ozetler.includes(await anahtarOzeti(baslik.tuz, agAnahtari(adayCoz(a.candidate).adres)))) ortak.push(adayPaketi(a));
         }
       }
-      await rtcGonder(oturum, { tur: "yanit", sdp: disSiz(pc.localDescription.sdp), adaylar: ortak });
+      await rtcGonder(oturum, { tur: "yanit", sdp: yalnizYerel(pc.localDescription.sdp), adaylar: ortak });
     } else if (baslik.tur === "yanit" && typeof baslik.sdp === "string" && oturum.rol === "teklif" && pc?.signalingState === "have-local-offer") {
-      await pc.setRemoteDescription({ type: "answer", sdp: disSiz(baslik.sdp) });
+      await pc.setRemoteDescription({ type: "answer", sdp: yalnizYerel(baslik.sdp) });
       const gelen = adaylarSec(baslik.adaylar, anahtarlar(pc));
       for (const a of gelen) await pc.addIceCandidate(a);
       if (gelen.length) {
@@ -758,7 +951,7 @@ function dogrudanAl(kanal, oturum) {
     bitti = true;
     if (satir) {
       satir.hata("Aktarım yarıda kesildi");
-      aktarimBitti();
+      alimBitti(boyut, false);
     }
     kanal.close();
   };
@@ -770,15 +963,14 @@ function dogrudanAl(kanal, oturum) {
         const baslik = JSON.parse(e.data);
         if (typeof baslik !== "object" || baslik === null) throw new Error("Geçersiz başlık");
         ad = dosyaAdiDuzelt(baslik.ad);
-        boyut = baslik.boyut;
-        if (!Number.isSafeInteger(boyut) || boyut < 0 || boyut > EN_BUYUK_DOSYA) {
+        const istenen = baslik.boyut;
+        satir = alimaBasla(ad, istenen, oturum);
+        if (!satir) {
           bitti = true;
           kanal.send("buyuk");
-          satirEkle("gelen", ad, 0, oturum).hata(`Alınmadı: Dosya ${boyutYaz(EN_BUYUK_DOSYA)} sınırını aşıyor`);
           return;
         }
-        satir = satirEkle("gelen", ad, boyut, oturum);
-        aktarimBasladi();
+        boyut = istenen;
         satir.ilerle(0, true);
       } else {
         if (typeof e.data === "string") throw new Error("Beklenmeyen ileti");
@@ -792,8 +984,8 @@ function dogrudanAl(kanal, oturum) {
         bitti = true;
         satir.ilerle(alinan, true);
         kanal.send("tamam");
-        dosyaHazir(parcalar, ad, satir);
-        aktarimBitti();
+        dosyaHazir(parcalar, ad, satir, boyut);
+        alimBitti(boyut, true);
       }
     } catch (err) {
       console.error(err);
@@ -808,6 +1000,8 @@ function dogrudanAl(kanal, oturum) {
 // Karıştırılabilecek 0, 1, I, L ve O harfleri yok. 8 karakter yaklaşık 40 bit.
 const KOD_HARFLERI = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
 const KOD_UZUNLUGU = 8;
+const KOD_EN_COK_RET = 3;
+let kodRetSayisi = 0;
 
 function kodUret() {
   // Mod yanlılığı olmasın diye 248'den (31 × 8) büyük baytlar atılır.
@@ -872,6 +1066,9 @@ function baglandi(oturum) {
   mevcut = oturum;
   bilerekKesildi = false;
   hafizaYaz(KARSI_HAFIZASI, oturum.karsiKimlik);
+  // QR'daki tek kullanımlık değer, bağlantı nasıl kurulursa kurulsun yenilenir: bağlıyken ekranda
+  // görülen QR sonradan kullanılamasın.
+  qrYenile();
   // Yalnız bağlanan taraf kopunca ya da sayfa yenilenince yeniden arar; bağlantıyı kabul eden
   // tarafta eski bir adres kalırsa iki taraf aynı anda birbirini arayıp bağlantıları düşürür.
   if (!oturum.yeniden) hafizaSil(BILET_HAFIZASI);
@@ -895,6 +1092,7 @@ function baglandi(oturum) {
     }
     if (mevcut !== oturum) return;
     mevcut = null;
+    sonBaglantiBitisi = Date.now();
     $("yol").hidden = true;
     const yeniden = oturum.yeniden ?? tumRelaylerle(`${oturum.karsiKimlik}~`);
     if (neden === GECIS || neden === YENILENDI) {
@@ -943,11 +1141,17 @@ function onaySor(ad, kod, baglanti) {
     bekleyenOnay = bitir;
     const zaman = setTimeout(() => bitir(false), ONAY_SURESI);
     baglanti.kapanis().then(() => bitir(false));
-    $("onay-metin").textContent = `${ad} bağlanmak istiyor.`;
+    // Ad, bağlanan cihazın kendine verdiği addır; tırnak içinde gösterilir.
+    $("onay-metin").textContent = `“${ad}” adlı cihaz bağlanmak istiyor.`;
     $("onay-kod").textContent = kod;
     $("onay-uyari").textContent = mevcut ? `Kabul ederseniz ${mevcut.ad} ile bağlantı kesilir.` : "";
     $("onay-uyari").hidden = !mevcut;
-    $("onay-kabul").onclick = () => bitir(true);
+    // Soru birden belirip sayfayı kaydırır; o an başka bir yere dokunmak üzere olan kullanıcı
+    // yanlışlıkla kabul etmesin diye "Kabul et" kısa bir süre basılamaz.
+    const kabulDugmesi = $("onay-kabul");
+    kabulDugmesi.disabled = true;
+    setTimeout(() => { if (bekleyenOnay === bitir) kabulDugmesi.disabled = false; }, 1000);
+    kabulDugmesi.onclick = () => bitir(true);
     $("onay-ret").onclick = () => bitir(false);
     onayBitis = Date.now() + ONAY_SURESI;
     $("onay").hidden = false;
@@ -1018,6 +1222,9 @@ async function gelenBaglanti(gelen, d) {
       if (kabul !== true) {
         if (kabul !== MESGUL) engellenenler.set(karsiKimlik, Date.now() + ENGEL_SURESI);
         baglanti.kapat(kabul === MESGUL ? MESGUL : REDDEDILDI);
+        // Kodu bilen biri ekranı sürekli soruyla dolduramasın: reddedilen her istek sayılır,
+        // KOD_EN_COK_RET'e ulaşınca kod kendiliğinden yenilenir.
+        if (kodla && kabul !== MESGUL && d === kodDugumu && ++kodRetSayisi >= KOD_EN_COK_RET) kodGoster();
         return;
       }
       // Soru ekrandayken kod başka bir istekle kullanılmış olabilir.
@@ -1088,6 +1295,15 @@ function baglanZamanli(bilet, ms) {
 // Bağlanan taraf: adını (QR'dan geliyorsa tek kullanımlık değerle) gönderir, karşının tanışma
 // mesajını (kabul) bekler. Sonuç: "tamam", "reddedildi", "mesgul" ya da "basarisiz".
 async function kur(bilet, ms, sir, gecis = false) {
+  disariBaglanan++;
+  try {
+    return await kurIc(bilet, ms, sir, gecis);
+  } finally {
+    disariBaglanan--;
+  }
+}
+
+async function kurIc(bilet, ms, sir, gecis) {
   const baglanti = await baglanZamanli(bilet, ms);
   try {
     await tanitimGonder(baglanti, sir ? { sir } : {});
@@ -1222,6 +1438,7 @@ async function kodGoster() {
   }
   kodDugumu = yeni;
   kodKullanildi = false;
+  kodRetSayisi = 0;
   dugme.hidden = true;
   $("kod").textContent = gruplara(kod, 4);
   $("kod").hidden = $("kod-aciklama").hidden = false;
@@ -1304,12 +1521,11 @@ function biletAc(kisa) {
   return { bilet: `${kimlik}~${RELAY_HARFLERI[harf] ?? ""}`, sir: /^[A-Za-z0-9_-]{22}$/.test(sir) ? sir : "" };
 }
 
-// QR'dan gelen bilgiyi okur ve adres çubuğundan siler. Sayfa yenilenirse aynı sekmede
+// QR'dan gelen bilgiyi (sayfa açılırken adres çubuğundan silindi) okur. Sayfa yenilenirse aynı sekmede
 // yeniden bağlanabilmek için adres sekme hafızasında tutulur.
 function biletiAl() {
-  const hash = location.hash.slice(1);
+  const hash = ILK_ADRES_BILGISI;
   if (hash) {
-    history.replaceState(null, "", location.pathname + location.search);
     const { bilet, sir } = biletAc(hash);
     hafizaYaz(BILET_HAFIZASI, bilet);
     return { bilet, sir, kaynak: "adres" };
@@ -1356,6 +1572,7 @@ async function basla() {
     return;
   }
   adiGoster();
+  const sekmeHazir = sekmeyiHazirla();
   const wasmYok = "Bu tarayıcıda WebAssembly çalışmıyor. iPhone'da Kilitlenme Modu açıksa Tulpar çalışmaz.";
   if (typeof WebAssembly !== "object") {
     durumYaz(wasmYok, "hata");
@@ -1368,6 +1585,9 @@ async function basla() {
     hataGoster(wasmYok, e);
     return;
   }
+  await sekmeHazir;
+  // Yenilemeden sonra son bağlanan cihaz bu sekmeyi bir süre daha arayabilir; kimlik hemen yenilenmez.
+  if (hafizaOku(KARSI_HAFIZASI)) sonBaglantiBitisi = Date.now();
   durumYaz("Aktarma sunucusuna bağlanılıyor…");
   try {
     dugum = await zamanAsimi(Dugum.baslat(sekmeAnahtari()), BASLAMA_SURESI);
@@ -1474,10 +1694,7 @@ $("kes").onclick = () => {
 // Biten bir aktarımı listeden siler ve alınan dosyanın bellekteki kopyasını bırakır.
 function satiriSil(li) {
   const a = li.querySelector(".ek a");
-  if (a) {
-    URL.revokeObjectURL(a.href);
-    kaydedilmemis.delete(a);
-  }
+  if (a) bellegiBirak(a);
   li.remove();
   $("temizle").hidden = !$("aktarimlar").children.length;
 }

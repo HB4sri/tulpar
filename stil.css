@@ -90,6 +90,8 @@ button, .dugme {
 button svg, .dugme svg { width: 18px; height: 18px; flex: none; }
 button:active, .dugme:active { transform: scale(.97); }
 button.ikincil { background: transparent; color: var(--yazi); border-color: var(--cizgi); }
+button:disabled { opacity: .55; cursor: default; }
+button:disabled:active { transform: none; }
 button.ikincil:hover { border-color: var(--soluk); }
 :focus-visible { outline: 2px solid var(--vurgu-yazi); outline-offset: 2px; }
 
@@ -168,6 +170,7 @@ button.sil:hover { color: var(--hata); background: var(--yuzey-2); }
 .cubuk span { display: block; height: 100%; background: var(--vurgu); transform: scaleX(0); transform-origin: left; transition: transform .25s ease-out; }
 .bilgi { grid-column: 2; display: flex; justify-content: space-between; align-items: center; gap: 8px; color: var(--soluk); font-size: .8125rem; font-variant-numeric: tabular-nums; }
 .metin { display: inline-flex; align-items: center; gap: 4px; }
+#aktarimlar .not { grid-column: 2; margin: 2px 0 0; color: var(--hata); font-weight: 600; overflow-wrap: anywhere; }
 li.tamam .cubuk, li.hata .cubuk { display: none; }
 li.tamam .metin { color: var(--basari); font-weight: 600; }
 li.hata .metin { color: var(--hata); font-weight: 600; }
