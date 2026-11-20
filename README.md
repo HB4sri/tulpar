@@ -60,24 +60,26 @@ Sonuçları "Sonuçları kopyala" düğmesiyle alabilirsiniz.
 - Doğrudan bağlantı WebRTC ile kurulur ve DTLS ile şifrelenir. Kurulum bilgileri ve şifreleme
   anahtarının parmak izi, kimliği zaten doğrulanmış Tulpar bağlantısı üzerinden değiştirilir; bu
   yüzden araya kimse giremez. Karşı cihazdan yalnızca yerel ağ adresleri kabul edilir. Cihazın
-  internetteki adresi karşı tarafa yalnızca iki cihazın adresi aynıysa gönderilir. Adreslerin aynı
-  olup olmadığını anlamak için adresin 16 bitlik kısa bir özeti paylaşılır. Bu özet adresi ele
-  vermez ama olası adresleri daraltır.
+  internetteki adresi karşı tarafa yalnızca iki cihazın adresi aynıysa gönderilir. İki cihaz
+  adreslerin aynı olup olmadığını, adresleri birbirine göstermeden anlar (CPace yöntemi). Karşı
+  taraf her bağlantıda yalnızca tek bir tahminin doğru olup olmadığını öğrenebilir.
 - QR kod, bağlanılacak cihazın açık anahtarını ve tek kullanımlık 128 bitlik bir değer içerir.
   Değer her bağlantıda ve 3 dakikada bir yenilenir; bağlı cihaz yokken sekmenin anahtarı da
   yenilenir. QR ile gelen yeni cihaz için her zaman onay sorulur; değeri bilmeyen tanımadık
   cihazların istekleri soru sorulmadan reddedilir. Onay sorusunda bağlanan cihazın kendine verdiği
   ad tırnak içinde yazar.
 - Bağlantı bilerek kesildiyse, iki taraftan biri yeniden bağlanmak istediğinde diğerinde onay sorulur.
-- 8 karakterlik kod 5 dakika geçerlidir ve bir kez kullanılabilir. Koddan anahtar PBKDF2
-  (200.000 tur) ile türetilir. Kodla gelen her bağlantıda onay sorulur; bağlantı kabul edilince
+- 8 karakterlik kod 5 dakika geçerlidir ve bir kez kullanılabilir. Anahtar, koddan ve kodun
+  gösterildiği 5 dakikalık zaman diliminden PBKDF2 (200.000 tur) ile türetilir. Önceden
+  hazırlanmış bir kod tablosu yalnızca o 5 dakika için işe yarar. Kodla gelen her bağlantıda onay sorulur; bağlantı kabul edilince
   iki taraf rastgele anahtarlı asıl adreslerine geçer ve koddan türetilen adres bir daha
   kullanılmaz. Kodla gelen 3 istek reddedilirse kod kendiliğinden yenilenir. **QR kod, 8
   karakterlik koddan daha güvenlidir**; mümkünse QR kodu kullanın.
-- Doğrulama kodu bağlantının TLS oturumundan türetilir; araya biri girerse iki ekrandaki kod büyük
-  olasılıkla farklı olur. QR ile bağlanmada araya girilemez, çünkü telefon bilgisayarın anahtarını
-  QR koddan doğrular. 8 karakterlik kodla bağlanmada ise kodu öğrenen ve özel bir araç kullanan
-  biri, iki ekranda aynı doğrulama kodunu çıkarmayı deneyebilir.
+- Doğrulama kodu bağlantının TLS oturumundan ve iki cihazın rastgele seçtiği birer değerden
+  türetilir. Bağlanan cihaz kendi değerini önce mühürlü olarak gönderir ve karşının değerini
+  aldıktan sonra açar. Bu yüzden araya giren biri iki ekrandaki kodu deneme yanılmayla
+  eşitleyemez. Kodların şans eseri aynı çıkma olasılığı milyonda birdir. QR ile bağlanmada araya
+  hiç girilemez, çünkü telefon bilgisayarın anahtarını QR koddan doğrular.
 - Alınan dosyalar kaydedilene ya da listeden kaldırılana kadar tarayıcının belleğinde durur.
   Toplamları 2 GB (iPhone'da 600 MB) ile sınırlıdır. Kaydedilen dosyanın bellekteki kopyası bir
   dakika sonra bırakılır.
@@ -110,8 +112,7 @@ Sonuçları "Sonuçları kopyala" düğmesiyle alabilirsiniz.
 - Ağ yöneticisi ve internet sağlayıcısı: bağlanılan sunucu adları ve veri miktarı. STUN sorgusu
   şifresiz gider; aynı ağdaki doğrudan aktarımın varlığı ve miktarı da görülebilir.
 - Eşleşilen cihaz: cihazınızın adı; doğrudan bağlantı denenirken cihazın yerel ağ adresi ya da
-  tarayıcının ürettiği geçici yerel adı ve internet adresinin 16 bitlik özeti; iki cihaz aynı
-  ağdaysa ortak internet adresi.
+  tarayıcının ürettiği geçici yerel adı; iki cihaz aynı ağdaysa ortak internet adresi.
 
 **Bir web uygulamasının sağlayamadıkları**
 
@@ -141,7 +142,7 @@ iş akışı günlüğünde yer alır. Sürüm numarası
 
 ## Yayın
 
-**https://tulpar.page**: Cloudflare Pages. İş akışı derlenmiş siteyi `yayin` dalına yeni bir commit
+**https://tulpar.page**: Cloudflare Pages. İş akışı derlenmiş siteyi `yayin` dalına yeni bir kayıt
 olarak ekler, Cloudflare bu dalı yayımlar. Dal silinemez ve geçmişi değiştirilemez; her yayın
 dalda geriye dönük görülebilir. Güvenlik başlıkları `docs/_headers` dosyasındadır.
 

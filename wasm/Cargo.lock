@@ -2926,9 +2926,11 @@ name = "tulpar-cekirdek"
 version = "0.1.0"
 dependencies = [
  "console_error_panic_hook",
+ "curve25519-dalek",
  "getrandom 0.3.4",
  "iroh",
  "js-sys",
+ "sha2",
  "tokio",
  "wasm-bindgen",
  "wasm-bindgen-futures",

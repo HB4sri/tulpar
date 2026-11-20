@@ -9,10 +9,13 @@ crate-type = ["cdylib"]
 
 [dependencies]
 console_error_panic_hook = "0.1.7"
+# Dış adreslerin gizli karşılaştırması (CPace, ristretto255). iroh zaten bu sürümleri kullanıyor.
+curve25519-dalek = { version = "5.0.0", default-features = false }
 # Doğrudan kullanılmıyor; tarayıcıda rastgele sayı üretimini (wasm_js) açmak için gerekli.
 getrandom = { version = "0.3", features = ["wasm_js"] }
 iroh = { version = "1.5.0", default-features = false, features = ["tls-ring"] }
 js-sys = "0.3"
+sha2 = { version = "0.11.1", default-features = false }
 tokio = { version = "1", default-features = false, features = ["sync", "macros"] }
 wasm-bindgen = "=0.2.130"
 wasm-bindgen-futures = "0.4"

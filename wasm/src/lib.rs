@@ -179,14 +179,42 @@ impl Baglanti {
         self.conn.remote_id().to_string()
     }
 
-    /// Bu bağlantının TLS oturum sırlarından türetilen 6 haneli doğrulama kodu. İki uçta aynı
-    /// çıkar; araya giren biri iki ayrı oturum kurmak zorunda kalacağından kodlar farklı olur.
-    pub fn dogrulama(&self) -> Result<String, JsValue> {
+    /// 6 haneli doğrulama kodu: bu bağlantının TLS oturum sırlarından ve iki tarafın rastgele
+    /// değerlerinden türetilir. İki uçta aynı çıkar; araya giren biri iki ayrı oturum kurmak zorunda
+    /// kalacağından kodlar farklı olur.
+    ///
+    /// `bagli_deger` bağlanan tarafın, `kabul_degeri` bağlantıyı kabul eden tarafın değeridir.
+    /// Bağlanan taraf kendi değerini önce SHA-256 özetiyle bağlar (taahhüt), karşının değerini
+    /// aldıktan sonra açar; JavaScript, kabul eden tarafta özetin tuttuğunu denetler. Böylece
+    /// araya giren biri kendi değerini kodları eşitleyecek biçimde seçemez: iki oturumun her
+    /// birinde son değeri dürüst taraf verir ve kodların tutma olasılığı milyonda birdir.
+    pub fn dogrulama(&self, bagli_deger: Uint8Array, kabul_degeri: Uint8Array) -> Result<String, JsValue> {
+        let (a, b) = (bagli_deger.to_vec(), kabul_degeri.to_vec());
+        if a.len() != 32 || b.len() != 32 {
+            return Err(hata("Doğrulama değeri 32 bayt olmalı"));
+        }
         let mut cikti = [0u8; 8];
         self.conn
-            .export_keying_material(&mut cikti, b"tulpar dogrulama 1", b"")
+            .export_keying_material(&mut cikti, b"tulpar dogrulama 2", &[a, b].concat())
             .map_err(|_| hata("Doğrulama kodu üretilemedi"))?;
         Ok(format!("{:06}", u64::from_be_bytes(cikti) % 1_000_000))
+    }
+
+    /// İki tarafın dış adres anahtarlarını, adresleri göstermeden karşılaştırmak için CPace
+    /// (bk. `Karsilastirma`). `teklif_eden`: doğrudan bağlantıyı teklif eden taraf mı?
+    /// `anahtarlar`: her yuva için bir anahtar (IPv4 dış adresi, IPv6 ağ öneki); anahtarı olmayan
+    /// yuvaya boş dize verilir ve yerine rastgele bir değer konur, karşı taraf bunu ayırt edemez.
+    pub fn karsilastir(&self, teklif_eden: bool, v4: String, v6: String) -> Result<Karsilastirma, JsValue> {
+        let mut sid = [0u8; 16];
+        self.conn
+            .export_keying_material(&mut sid, b"tulpar cpace 1", b"")
+            .map_err(|_| hata("Karşılaştırma başlatılamadı"))?;
+        let mut yuvalar = Vec::new();
+        for (ad, anahtar) in [(&b"tulpar v4"[..], v4), (&b"tulpar v6"[..], v6)] {
+            let prs = if anahtar.is_empty() { rastgele::<32>()?.to_vec() } else { anahtar.into_bytes() };
+            yuvalar.push(cpace::Yuva::yeni(&prs, ad, &sid)?);
+        }
+        Ok(Karsilastirma { teklif_eden, sid, yuvalar, iskler: Vec::new() })
     }
 
     /// Gönderim için yeni bir akış açar. Sonuç: `Gonderici`.
@@ -226,6 +254,152 @@ impl Baglanti {
     /// Anlamını JavaScript belirler.
     pub fn kapat(&self, neden: String) {
         self.conn.close(0u8.into(), neden.as_bytes());
+    }
+}
+
+fn rastgele<const N: usize>() -> Result<[u8; N], JsValue> {
+    let mut b = [0u8; N];
+    getrandom::fill(&mut b).map_err(hata)?;
+    Ok(b)
+}
+
+fn onaltili(b: &[u8]) -> String {
+    b.iter().map(|x| format!("{x:02x}")).collect()
+}
+
+fn onaltilidan(s: &str, uzunluk: usize) -> Result<Vec<u8>, JsValue> {
+    if s.len() != uzunluk * 2 || !s.bytes().all(|c| c.is_ascii_hexdigit()) {
+        return Err(hata("Beklenmeyen karşılaştırma iletisi"));
+    }
+    Ok((0..uzunluk).map(|i| u8::from_str_radix(&s[i * 2..i * 2 + 2], 16).unwrap()).collect())
+}
+
+/// CPace (draft-irtf-cfrg-cpace, ristretto255 ve SHA-512): iki taraf ortak bir sırrı (burada dış
+/// adres anahtarını) bilip bilmediklerini, sırrı göstermeden öğrenir. Karşı taraf her yuva için
+/// yalnız tek bir tahminin doğru olup olmadığını öğrenebilir; iletilerden çevrim dışı deneme
+/// yapılamaz.
+mod cpace {
+    use curve25519_dalek::{
+        ristretto::{CompressedRistretto, RistrettoPoint},
+        scalar::Scalar,
+        traits::IsIdentity,
+    };
+    use sha2::{Digest, Sha512};
+    use wasm_bindgen::JsValue;
+
+    use super::{hata, rastgele};
+
+    const DSI: &[u8] = b"CPaceRistretto255";
+
+    /// Uzunluğu başa eklenmiş (LEB128) dizilerin art arda eklenmesi.
+    pub fn lv_cat(parcalar: &[&[u8]]) -> Vec<u8> {
+        let mut cikti = Vec::new();
+        for p in parcalar {
+            let mut n = p.len();
+            loop {
+                let b = (n & 0x7f) as u8;
+                n >>= 7;
+                if n == 0 {
+                    cikti.push(b);
+                    break;
+                }
+                cikti.push(b | 0x80);
+            }
+            cikti.extend_from_slice(p);
+        }
+        cikti
+    }
+
+    fn sha512(veri: &[u8]) -> [u8; 64] {
+        Sha512::digest(veri).into()
+    }
+
+    pub struct Yuva {
+        y: Scalar,
+        pub benim: [u8; 32],
+    }
+
+    impl Yuva {
+        pub fn yeni(prs: &[u8], ci: &[u8], sid: &[u8]) -> Result<Self, JsValue> {
+            // generator_string: SHA-512 blok boyu 128 bayt; DSI ve PRS ilk bloğa sığmazsa dolgu olmaz.
+            let dolgu = 128usize.saturating_sub(1 + lv_cat(&[prs]).len() + lv_cat(&[DSI]).len());
+            let g = RistrettoPoint::from_uniform_bytes(&sha512(&lv_cat(&[DSI, prs, &vec![0u8; dolgu], ci, sid])));
+            let y = Scalar::from_bytes_mod_order_wide(&rastgele::<64>()?);
+            Ok(Yuva { y, benim: (g * y).compress().to_bytes() })
+        }
+
+        /// Ortak oturum anahtarı (ISK). `teklif_eden` sıralamayı belirler: önce teklif edenin iletisi.
+        pub fn isk(&self, karsi: &[u8], sid: &[u8], teklif_eden: bool) -> Result<[u8; 64], JsValue> {
+            let karsi: [u8; 32] = karsi.try_into().map_err(|_| hata("Geçersiz nokta"))?;
+            let nokta = CompressedRistretto(karsi).decompress().ok_or_else(|| hata("Geçersiz nokta"))?;
+            let k = nokta * self.y;
+            if k.is_identity() {
+                return Err(hata("Geçersiz nokta"));
+            }
+            let (ya, yb) = if teklif_eden { (&self.benim, &karsi) } else { (&karsi, &self.benim) };
+            let isk_dsi = [DSI, b"_ISK"].concat();
+            let mut girdi = lv_cat(&[&isk_dsi, sid, k.compress().as_bytes()]);
+            girdi.extend(lv_cat(&[ya, b""]));
+            girdi.extend(lv_cat(&[yb, b""]));
+            Ok(sha512(&girdi))
+        }
+    }
+
+    /// İki tarafın ayrı etiketi: karşıdan gelen etiketi geri yollamak eşleşme sayılmasın.
+    pub fn etiket(isk: &[u8; 64], teklif_eden: bool) -> [u8; 16] {
+        let rol: &[u8] = if teklif_eden { b"teklif" } else { b"yanit" };
+        let h = sha512(&lv_cat(&[b"tulpar etiket 1", rol, isk]));
+        h[..16].try_into().unwrap()
+    }
+}
+
+/// Dış adres anahtarlarının gizli karşılaştırması. Akış:
+/// 1. iki taraf `ileti()` sonucunu değiştirir;
+/// 2. her taraf karşının iletisini `etiketler()` ile işler ve çıkan etiketleri gönderir;
+/// 3. `eslesenler()` karşıdan gelen etiketlerle hangi yuvaların tuttuğunu söyler.
+/// Etiketi doğru çıkan karşı taraf aynı anahtarı biliyordur.
+#[wasm_bindgen]
+pub struct Karsilastirma {
+    teklif_eden: bool,
+    sid: [u8; 16],
+    yuvalar: Vec<cpace::Yuva>,
+    iskler: Vec<[u8; 64]>,
+}
+
+#[wasm_bindgen]
+impl Karsilastirma {
+    /// Karşıya gönderilecek ileti: her yuva için 32 baytlık nokta, onaltılı.
+    pub fn ileti(&self) -> String {
+        self.yuvalar.iter().map(|y| onaltili(&y.benim)).collect()
+    }
+
+    /// Karşının iletisini işler; karşıya gönderilecek etiketleri döner (yuva başına 16 bayt, onaltılı).
+    pub fn etiketler(&mut self, karsi: String) -> Result<String, JsValue> {
+        let baytlar = onaltilidan(&karsi, 32 * self.yuvalar.len())?;
+        let mut iskler = Vec::new();
+        for (yuva, nokta) in self.yuvalar.iter().zip(baytlar.chunks(32)) {
+            iskler.push(yuva.isk(nokta, &self.sid, self.teklif_eden)?);
+        }
+        let cikti = iskler.iter().map(|i| onaltili(&cpace::etiket(i, self.teklif_eden))).collect();
+        self.iskler = iskler;
+        Ok(cikti)
+    }
+
+    /// Karşının etiketlerini denetler. Sonuç: tutan yuvaların bit maskesi (1: IPv4, 2: IPv6).
+    pub fn eslesenler(&self, karsi: String) -> Result<u8, JsValue> {
+        if self.iskler.is_empty() {
+            return Err(hata("Önce karşının iletisi işlenmeli"));
+        }
+        let baytlar = onaltilidan(&karsi, 16 * self.iskler.len())?;
+        let mut maske = 0u8;
+        for (i, (isk, gelen)) in self.iskler.iter().zip(baytlar.chunks(16)).enumerate() {
+            let beklenen = cpace::etiket(isk, !self.teklif_eden);
+            // Sabit süreli karşılaştırma.
+            if beklenen.iter().zip(gelen).fold(0u8, |f, (a, b)| f | (a ^ b)) == 0 {
+                maske |= 1 << i;
+            }
+        }
+        Ok(maske)
     }
 }
 
