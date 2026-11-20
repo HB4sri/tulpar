@@ -1,6 +1,6 @@
 {
   "name": "tulpar",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "private": true,
   "scripts": {
     "derle": "node derle.mjs",

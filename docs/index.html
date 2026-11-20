@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<!-- Sayfa yalnız kendi dosyalarını yükleyebilir ve yalnız n0 relay'lerine bağlanabilir. -->
+<!-- Sayfa yalnız kendi dosyalarını yükleyebilir; fetch ve WebSocket bağlantıları yalnız n0 relay'lerine gidebilir. WebRTC (aynı ağda doğrudan bağlantı ve Cloudflare STUN) bu kuralın dışındadır; app.js'te ayrıca sınırlanır. -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self' https://*.relay.n0.iroh.link wss://*.relay.n0.iroh.link; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <title>Tulpar</title>

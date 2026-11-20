@@ -1,6 +1,6 @@
 # WebAssembly çekirdeğini GitHub'ın sunucusunda derler, bilinen güvenlik açıklarını tarar ve
-# docs/ klasörünü GitHub Pages'te yayımlar. Derlenen dosyaların SHA-256 özetleri docs/pkg/SHA256SUMS
-# dosyasında ve iş akışı günlüğünde görünür.
+# docs/ klasörünü "yayin" dalı üzerinden Cloudflare Pages'te (tulpar.page) yayımlar. Yayımlanan bütün
+# dosyaların SHA-256 özetleri docs/SHA256SUMS dosyasında ve iş akışı günlüğünde görünür.
 #
 # Eylemler değiştirilemez commit SHA'larıyla çağrılır (yanlarında sürüm etiketi yazar).
 name: Derle ve yayımla
@@ -14,7 +14,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: pages
+  group: yayin
   cancel-in-progress: true
 
 jobs:
@@ -37,7 +37,7 @@ jobs:
       - name: wasm-bindgen ve cargo-audit
         uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2.90.6
         with:
-          tool: wasm-bindgen@0.2.130,cargo-audit
+          tool: wasm-bindgen@0.2.130,cargo-audit@0.23.0
 
       - name: Güvenlik açığı taraması
         working-directory: wasm
@@ -49,10 +49,6 @@ jobs:
           AR_wasm32_unknown_unknown: llvm-ar
         run: node derle.mjs
 
-      - name: Özetler
-        working-directory: docs/pkg
-        run: sha256sum tulpar_cekirdek_bg.wasm tulpar_cekirdek.js | tee SHA256SUMS
-
       # Dosya adreslerine commit eklenir; tarayıcı önbelleğinde eski ve yeni dosyalar karışmaz.
       # Alt bilgideki sürüm numarası package.json'dan gelir.
       - name: Sürüm
@@ -62,33 +58,21 @@ jobs:
           echo "$SURUM_ADI" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'
           sed -i "s/__SURUM_ADI__/${SURUM_ADI}/g" docs/index.html docs/tanilama/index.html
 
-      - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
-      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
-        with:
-          path: docs
+      # Yayımlanan bütün dosyaların özetleri (sürüm yazıldıktan sonra, yayımlanan hâlleriyle).
+      - name: Özetler
+        working-directory: docs
+        run: find . -type f ! -name SHA256SUMS -printf '%P\n' | LC_ALL=C sort | xargs -d '\n' sha256sum | tee SHA256SUMS
 
-      # Aynı çıktı Cloudflare Pages için de saklanır (cloudflare işi).
+      # Çıktı cloudflare işi için saklanır.
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: site
           path: docs
           retention-days: 1
 
-  yayimla:
-    needs: derle
-    runs-on: ubuntu-24.04
-    permissions:
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.yayin.outputs.page_url }}
-    steps:
-      - id: yayin
-        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
-
-  # Derlenmiş site "yayin" dalına tek commit olarak konur; Cloudflare Pages bu dalı izler ve
-  # tulpar.page'de yayımlar (kendisi derleme yapmaz). Dal her seferinde baştan yazılır.
+  # Derlenmiş site "yayin" dalına yeni bir commit olarak eklenir; Cloudflare Pages bu dalı izler ve
+  # tulpar.page'de yayımlar (kendisi derleme yapmaz). Dalın geçmişi silinmez ve değiştirilmez
+  # (kural seti: silme ve geçmişi yeniden yazma kapalı), böylece her yayın geriye dönük görülebilir.
   cloudflare:
     needs: derle
     runs-on: ubuntu-24.04
@@ -100,7 +84,7 @@ jobs:
           name: site
           path: site
 
-      - name: yayin dalına gönder
+      - name: yayin dalına ekle
         working-directory: site
         env:
           GH_TOKEN: ${{ github.token }}
@@ -108,6 +92,9 @@ jobs:
           git init -q -b yayin
           git config user.name "github-actions[bot]"
           git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          # Önceki yayın üst commit olur; commit'in içeriği yalnız bu derlemenin dosyalarıdır.
+          if git fetch -q --depth=1 origin yayin; then git reset -q --soft FETCH_HEAD; fi
           git add -A
-          git commit -q -m "Yayın: ${GITHUB_SHA::12}"
-          git push -q --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" yayin
+          git commit -q --allow-empty -m "Yayın: ${GITHUB_SHA::12}"
+          git push -q origin HEAD:yayin
