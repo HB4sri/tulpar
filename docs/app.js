@@ -510,10 +510,21 @@ async function almaDongusu(oturum) {
 
 // Aktarma sunucusu üzerinden kurulmuş, kimliği doğrulanmış bağlantı sinyal kanalı olarak kullanılır:
 // iki taraf WebRTC tekliflerini (SDP) bu kanaldan değiştirir. SDP'deki DTLS parmak izi bu kanaldan
-// geldiği için doğrudan bağlantının arasına kimse giremez. STUN ya da TURN sunucusu verilmez: yalnız
-// aynı yerel ağdaki adresler denenir, başka bir şirketin sunucusuna bağlanılmaz. Kurulamazsa aktarma
-// sunucusu kullanılmaya devam eder. Teklifi bağlanan taraf yapar, kabul eden yanıtlar.
+// geldiği için doğrudan bağlantının arasına kimse giremez. TURN sunucusu verilmez; dosyalar hiçbir
+// sunucudan geçmez. Kurulamazsa aktarma sunucusu kullanılmaya devam eder. Teklifi bağlanan taraf
+// yapar, kabul eden yanıtlar.
+//
+// Tarayıcılar yerel adresi "xxx.local" takma adıyla gizler ve karşı cihaz bu adı çoğu ağda çözemez.
+// Bu yüzden Cloudflare'in STUN sunucusundan (site zaten Cloudflare'de) cihazın dış adresi öğrenilir;
+// aynı evdeki iki cihaz bu adres üzerinden modem aracılığıyla buluşur. Dış adres karşı tarafa yalnız
+// iki cihaz aynı ağdaysa, yani karşı taraf o adresi zaten biliyorsa verilir:
+//  1. Teklif dış adres olmadan gider; yanında adres anahtarlarının 16 bitlik özeti bulunur.
+//  2. Yanıtlayan taraf, özeti tutan kendi dış adresini yanıta ekler. Kısa özet adresi ele vermez:
+//     aynı özete on binlerce adres düşer.
+//  3. Teklif eden taraf, gelen adresin anahtarı kendisininkiyle birebir aynıysa kendi dış adresini
+//     gönderir. Her iki taraf da yalnız kendi anahtarıyla birebir eşleşen adresleri kullanır.
 const DOGRUDAN_DESTEK = typeof RTCPeerConnection === "function";
+const STUN = [{ urls: "stun:stun.cloudflare.com:3478" }];
 const DOGRUDAN_SURESI = 15000;          // bu sürede kurulamazsa denemekten vazgeçilir
 const DOGRUDAN_PARCA = 64 * 1024;       // bütün tarayıcıların kabul ettiği ileti boyutu
 const DOGRUDAN_TAMPON = 8 * 1024 ** 2;  // gönderim tamponu bunu aşınca boşalması beklenir (Chrome 16 MB üstünü kabul etmez)
@@ -537,6 +548,47 @@ function adaylarHazir(pc, ms = 3000) {
   });
 }
 
+// "candidate:VAKIF BİLEŞEN İLETİM ÖNCELİK ADRES KAPI typ TÜR ..." satırından adres ve tür.
+function adayCoz(satir) {
+  const p = satir.replace(/^a=/, "").split(" ");
+  return { adres: p[4] || "", tur: p[7] || "" };
+}
+
+// Aynı ağın anahtarı: IPv4'te dış adresin kendisi, IPv6'da adresin ilk 64 biti (ağ öneki).
+function agAnahtari(adres) {
+  if (!adres.includes(":")) return adres;
+  const [bas, son] = adres.split("::");
+  const a = bas ? bas.split(":") : [];
+  const b = son ? son.split(":") : [];
+  const tam = son === undefined ? a : [...a, ...Array(Math.max(0, 8 - a.length - b.length)).fill("0"), ...b];
+  return tam.slice(0, 4).map(x => parseInt(x, 16).toString(16)).join(":");
+}
+
+const anahtarlar = pc => [...new Set(pc.dis.map(a => agAnahtari(adayCoz(a.candidate).adres)))];
+
+async function anahtarOzeti(tuz, anahtar) {
+  const h = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${tuz} ${anahtar}`)));
+  return h[0] * 256 + h[1];
+}
+
+// SDP'den dış adres (srflx) satırları çıkarılır; bunlar ayrıca ve yalnız aynı ağda paylaşılır.
+const disSiz = sdp => sdp.split("\r\n").filter(l => !(l.startsWith("a=candidate:") && adayCoz(l).tur === "srflx")).join("\r\n");
+
+const adayPaketi = a => ({ candidate: a.candidate, sdpMid: a.sdpMid, sdpMLineIndex: a.sdpMLineIndex });
+
+// Karşıdan gelen dış adreslerden yalnız anahtarı bizimkiyle birebir aynı olanlar alınır.
+function adaylarSec(liste, benim) {
+  if (!Array.isArray(liste)) return [];
+  return liste.slice(0, 8).filter(a =>
+    a && typeof a.candidate === "string" && a.candidate.startsWith("candidate:") && a.candidate.length < 512 &&
+    adayCoz(a.candidate).tur === "srflx" && benim.includes(agAnahtari(adayCoz(a.candidate).adres))
+  ).map(a => ({
+    candidate: a.candidate,
+    sdpMid: typeof a.sdpMid === "string" ? a.sdpMid : null,
+    sdpMLineIndex: Number.isInteger(a.sdpMLineIndex) ? a.sdpMLineIndex : null,
+  }));
+}
+
 async function rtcGonder(oturum, mesaj) {
   const gonderici = await oturum.baglanti.akis_ac();
   await gonderici.yaz(cerceve({ tip: "rtc", ...mesaj }));
@@ -551,8 +603,12 @@ function dogrudanKapat(oturum, pc) {
 }
 
 function rtcOlustur(oturum) {
-  const pc = new RTCPeerConnection({ iceServers: [] });
+  const pc = new RTCPeerConnection({ iceServers: STUN });
   oturum.pc = pc;
+  pc.dis = [];
+  pc.onicecandidate = e => {
+    if (e.candidate && adayCoz(e.candidate.candidate).tur === "srflx") pc.dis.push(e.candidate);
+  };
   // İki tarafta aynı kimlikle (0) açılan denetim kanalı; açıldığında doğrudan yol hazırdır.
   const denetim = pc.createDataChannel("denetim", { negotiated: true, id: 0 });
   denetim.onopen = () => {
@@ -579,23 +635,42 @@ async function dogrudanBaslat(oturum) {
     const pc = rtcOlustur(oturum);
     await pc.setLocalDescription(await pc.createOffer());
     await adaylarHazir(pc);
-    await rtcGonder(oturum, { tur: "teklif", sdp: pc.localDescription.sdp });
+    const tuz = [...crypto.getRandomValues(new Uint8Array(16))].map(b => b.toString(16).padStart(2, "0")).join("");
+    const ag = await Promise.all(anahtarlar(pc).map(a => anahtarOzeti(tuz, a)));
+    await rtcGonder(oturum, { tur: "teklif", sdp: disSiz(pc.localDescription.sdp), tuz, ag });
   } catch (e) {
     console.error(e);
   }
 }
 
 async function rtcMesaji(oturum, baslik) {
-  if (!DOGRUDAN_DESTEK || typeof baslik.sdp !== "string") return;
+  if (!DOGRUDAN_DESTEK) return;
   try {
-    if (baslik.tur === "teklif" && oturum.rol === "yanit" && !oturum.pc) {
+    const pc = oturum.pc;
+    if (baslik.tur === "teklif" && typeof baslik.sdp === "string" && oturum.rol === "yanit" && !pc) {
       const pc = rtcOlustur(oturum);
-      await pc.setRemoteDescription({ type: "offer", sdp: baslik.sdp });
+      await pc.setRemoteDescription({ type: "offer", sdp: disSiz(baslik.sdp) });
       await pc.setLocalDescription(await pc.createAnswer());
       await adaylarHazir(pc);
-      await rtcGonder(oturum, { tur: "yanit", sdp: pc.localDescription.sdp });
-    } else if (baslik.tur === "yanit" && oturum.rol === "teklif" && oturum.pc?.signalingState === "have-local-offer") {
-      await oturum.pc.setRemoteDescription({ type: "answer", sdp: baslik.sdp });
+      const ozetler = Array.isArray(baslik.ag) ? baslik.ag.slice(0, 8) : [];
+      const ortak = [];
+      if (typeof baslik.tuz === "string" && baslik.tuz.length <= 64) {
+        for (const a of pc.dis) {
+          if (ozetler.includes(await anahtarOzeti(baslik.tuz, agAnahtari(adayCoz(a.candidate).adres)))) ortak.push(adayPaketi(a));
+        }
+      }
+      await rtcGonder(oturum, { tur: "yanit", sdp: disSiz(pc.localDescription.sdp), adaylar: ortak });
+    } else if (baslik.tur === "yanit" && typeof baslik.sdp === "string" && oturum.rol === "teklif" && pc?.signalingState === "have-local-offer") {
+      await pc.setRemoteDescription({ type: "answer", sdp: disSiz(baslik.sdp) });
+      const gelen = adaylarSec(baslik.adaylar, anahtarlar(pc));
+      for (const a of gelen) await pc.addIceCandidate(a);
+      if (gelen.length) {
+        const uyan = gelen.map(a => agAnahtari(adayCoz(a.candidate).adres));
+        const benim = pc.dis.filter(a => uyan.includes(agAnahtari(adayCoz(a.candidate).adres)));
+        await rtcGonder(oturum, { tur: "aday", adaylar: benim.map(adayPaketi) });
+      }
+    } else if (baslik.tur === "aday" && oturum.rol === "yanit" && pc?.signalingState === "stable") {
+      for (const a of adaylarSec(baslik.adaylar, anahtarlar(pc))) await pc.addIceCandidate(a);
     }
   } catch (e) {
     console.error(e);

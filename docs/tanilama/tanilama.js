@@ -53,29 +53,48 @@ async function sunucu(adres) {
   return { durum: "kapali", detay: zamanAsimi ? "Yanıt gelmedi" : "Ulaşılamadı" };
 }
 
-// Aynı ağda doğrudan bağlantı (WebRTC) için tarayıcının yerel ağ adayı üretip üretmediği. STUN sunucusu
-// verilmez; hiçbir yere bağlanılmaz. Bu kontrol özete katılmaz: kapalıysa Tulpar aktarma sunucusunu kullanır.
-async function dogrudan() {
-  const kapali = { durum: "kapali", detay: "Bu tarayıcıda kapalı" };
-  if (typeof RTCPeerConnection !== "function") return kapali;
-  let pc;
-  try {
-    pc = new RTCPeerConnection({ iceServers: [] });
-    pc.createDataChannel("deneme");
-    let yerel = 0;
-    pc.onicecandidate = e => { if (e.candidate && / typ host/.test(e.candidate.candidate)) yerel++; };
-    await pc.setLocalDescription(await pc.createOffer());
-    await new Promise(coz => {
-      const zaman = setTimeout(coz, 3000);
-      pc.onicegatheringstatechange = () => {
-        if (pc.iceGatheringState === "complete") { clearTimeout(zaman); coz(); }
-      };
+// Aynı ağda doğrudan bağlantı (WebRTC): uygulamadaki gibi Cloudflare'in STUN sunucusundan dış adres
+// öğrenilir ve aynı sayfadaki iki bağlantı yalnız bu dış adresle buluşmaya çalışır. Kurulursa modem
+// dış adrese gelen bağlantıyı içeri geri çeviriyordur; telefon ve bilgisayar da aynı yolla buluşur.
+// Bu kontrol özete katılmaz: kurulamazsa Tulpar aktarma sunucusunu kullanır.
+const STUN = [{ urls: "stun:stun.cloudflare.com:3478" }];
+const yalnizDis = sdp => sdp.split("\r\n").filter(l => !l.startsWith("a=candidate:") || / typ srflx /.test(l)).join("\r\n");
+
+function toplandi(pc) {
+  if (pc.iceGatheringState === "complete") return Promise.resolve();
+  return new Promise(coz => {
+    const zaman = setTimeout(coz, 5000);
+    pc.addEventListener("icegatheringstatechange", () => {
+      if (pc.iceGatheringState === "complete") { clearTimeout(zaman); coz(); }
     });
-    return yerel ? { durum: "acik", detay: "Mümkün" } : kapali;
+  });
+}
+
+async function dogrudan() {
+  if (typeof RTCPeerConnection !== "function") return { durum: "kapali", detay: "Bu tarayıcıda kapalı" };
+  const olmaz = { durum: "kapali", detay: "Bu ağda kurulamıyor" };
+  let a, b;
+  try {
+    a = new RTCPeerConnection({ iceServers: STUN });
+    b = new RTCPeerConnection({ iceServers: STUN });
+    const kanal = a.createDataChannel("deneme", { negotiated: true, id: 0 });
+    b.createDataChannel("deneme", { negotiated: true, id: 0 });
+    const acildi = new Promise(coz => { kanal.onopen = () => coz(true); });
+    await a.setLocalDescription(await a.createOffer());
+    await toplandi(a);
+    await b.setRemoteDescription({ type: "offer", sdp: yalnizDis(a.localDescription.sdp) });
+    await b.setLocalDescription(await b.createAnswer());
+    await toplandi(b);
+    const yanit = yalnizDis(b.localDescription.sdp);
+    if (!/ typ srflx /.test(yanit)) return olmaz;
+    await a.setRemoteDescription({ type: "answer", sdp: yanit });
+    const kuruldu = await Promise.race([acildi, new Promise(coz => setTimeout(() => coz(false), 6000))]);
+    return kuruldu ? { durum: "acik", detay: "Mümkün" } : olmaz;
   } catch {
-    return kapali;
+    return olmaz;
   } finally {
-    pc?.close();
+    a?.close();
+    b?.close();
   }
 }
 

@@ -34,7 +34,8 @@ sunucusunu önerir. Bu sunucular için çalışma süresi garantisi yoktur ve h�
 İki cihaz aynı ağdaysa (ör. evdeki Wi-Fi) Tulpar bağlandıktan sonra doğrudan bağlantı da dener.
 Kurulursa dosyalar aktarma sunucusuna uğramadan, ağın hızında gider. Kurulamazsa (farklı ağlar,
 misafir ağları, cihazları birbirinden ayıran ağlar) aktarma sunucusu kullanılmaya devam eder.
-Ekranda hangi yolun kullanıldığı yazar.
+Ekranda hangi yolun kullanıldığı yazar. Bunun için cihazın internetteki adresi Cloudflare'in STUN
+sunucusundan öğrenilir; dosyalar bu sunucudan geçmez.
 
 - **Hız:** Aktarma sunucusunda ölçülen hız saniyede yaklaşık 0,4 MB'dir; 10 MB'lik bir dosya yaklaşık 30 saniyede
   gider. n0 hız sınırlarını yayımlamaz, gerektiğinde değiştirir.
@@ -44,7 +45,8 @@ Ekranda hangi yolun kullanıldığı yazar.
 ## Sorun giderme
 
 Tulpar bir cihazda ya da ağda çalışmıyorsa [tanılama sayfasını](https://tulpar.page/tanilama/) açın.
-Sayfa, tarayıcının uygun olup olmadığını ve aktarma sunucularına ulaşılıp ulaşılamadığını kontrol eder.
+Sayfa, tarayıcının uygun olup olmadığını, aktarma sunucularına ulaşılıp ulaşılamadığını ve bu ağda
+doğrudan bağlantının kurulup kurulamadığını kontrol eder.
 Sonuçları "Sonuçları kopyala" düğmesiyle alabilirsiniz.
 
 ## Güvenlik modeli
@@ -57,7 +59,8 @@ Sonuçları "Sonuçları kopyala" düğmesiyle alabilirsiniz.
 - Aktarma sunucusu yalnızca şifreli paketleri taşır. Dosyalar hiçbir sunucuda saklanmaz.
 - Doğrudan bağlantı WebRTC ile kurulur ve DTLS ile şifrelenir. Kurulum bilgileri ve şifreleme
   anahtarının parmak izi, kimliği zaten doğrulanmış Tulpar bağlantısı üzerinden değiştirilir; bu
-  yüzden araya kimse giremez. Başka bir şirketin sunucusu (STUN ya da TURN) kullanılmaz.
+  yüzden araya kimse giremez. İki cihazın internetteki adresi aynı değilse doğrudan bağlantı
+  denenmez ve bu adres karşı tarafa gönderilmez.
 - QR kod, bağlanılacak cihazın açık anahtarını ve tek kullanımlık 128 bitlik bir değer içerir.
   Değer kullanılınca ve 3 dakikada bir yenilenir. QR ile gelen yeni cihaz için her zaman onay
   sorulur; değeri bilmeyen tanımadık cihazların istekleri soru sorulmadan reddedilir.
@@ -76,9 +79,11 @@ Sonuçları "Sonuçları kopyala" düğmesiyle alabilirsiniz.
   n0 [SSS sayfasında](https://docs.iroh.computer/about/faq) bu bilgileri kaydetmediğini yazar.
 - Sayfayı sunan Cloudflare (tulpar.page) ya da GitHub (yedek adres): sayfanın istenmesi (IP,
   zaman, tarayıcı). Adresteki `#` işaretinden sonraki kısım bu sunuculara gitmez.
+- Cloudflare'in STUN sunucusu (doğrudan bağlantı denenirken): IP adresi ve zaman. Cloudflare bu
+  bilgileri sayfayı sunarken de görür.
 - Ağ yöneticisi ve internet sağlayıcısı: bağlanılan sunucu adları ve veri miktarı.
 - Eşleşilen cihaz: doğrudan bağlantı denenirken bu cihazın yerel ağ adresi ya da tarayıcının
-  ürettiği geçici yerel adı.
+  ürettiği geçici yerel adı; iki cihaz aynı ağdaysa ortak internet adresi.
 
 **Bir web uygulamasının sağlayamadıkları**
 
