@@ -71,10 +71,11 @@ Sonuçları "Sonuçları kopyala" düğmesiyle alabilirsiniz.
 - Bağlantı bilerek kesildiyse, iki taraftan biri yeniden bağlanmak istediğinde diğerinde onay sorulur.
 - 8 karakterlik kod 5 dakika geçerlidir ve bir kez kullanılabilir. Anahtar, koddan ve kodun
   gösterildiği 5 dakikalık zaman diliminden PBKDF2 (200.000 tur) ile türetilir. Önceden
-  hazırlanmış bir kod tablosu yalnızca o 5 dakika için işe yarar. Kodla gelen her bağlantıda onay sorulur; bağlantı kabul edilince
-  iki taraf rastgele anahtarlı asıl adreslerine geçer ve koddan türetilen adres bir daha
-  kullanılmaz. Kodla gelen 3 istek reddedilirse kod kendiliğinden yenilenir. **QR kod, 8
-  karakterlik koddan daha güvenlidir**; mümkünse QR kodu kullanın.
+  hazırlanmış bir kod tablosu yalnızca o 5 dakika için işe yarar. Kodla gelen her bağlantıda onay
+  sorulur; bağlantı kabul edilince iki taraf rastgele anahtarlı asıl adreslerine geçer ve koddan
+  türetilen adres bir daha kullanılmaz. Bir kodla en çok 3 kez bağlanma denenebilir, sonra kod
+  kendiliğinden yenilenir. **QR kod, 8 karakterlik koddan daha güvenlidir**; mümkünse QR kodu
+  kullanın.
 - Doğrulama kodu bağlantının TLS oturumundan ve iki cihazın rastgele seçtiği birer değerden
   türetilir. Bağlanan cihaz kendi değerini önce mühürlü olarak gönderir ve karşının değerini
   aldıktan sonra açar. Bu yüzden araya giren biri iki ekrandaki kodu deneme yanılmayla
@@ -88,7 +89,13 @@ Sonuçları "Sonuçları kopyala" düğmesiyle alabilirsiniz.
 
 - Yalnızca kendi cihazınızdaki QR kodu okutun. Başkasının gönderdiği Tulpar bağlantısını açmayın;
   dosya göndermek isteyen biri sizin QR kodunuzu okutmalı.
-- 8 karakterlik kodu yüksek sesle okumayın ve ekran paylaşırken göstermeyin.
+- QR kodla bağlanırken de iki ekrandaki doğrulama kodunu karşılaştırın. Telefonda "Bağlantı
+  isteği reddedildi." yazıyorsa bilgisayarda çıkan soruyu kabul etmeyin.
+- QR kodu ve 8 karakterlik kodu ekran paylaşırken göstermeyin. 8 karakterlik kodu yüksek sesle
+  okumayın.
+- Çok gizli bir dosyayı göndermeden önce parolalı bir arşivle (ör. 7-Zip, AES-256) ayrıca
+  şifreleyebilirsiniz. Parolayı başka bir yoldan iletin. Böylece sayfanın kodu değiştirilse bile
+  dosyanın içeriği korunur.
 - Program dosyalarını (ör. .exe, .apk) yalnızca güvendiğiniz bir kaynaktan geldiyse açın.
 
 **Görülebilenler**

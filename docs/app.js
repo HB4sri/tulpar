@@ -467,7 +467,10 @@ function satirEkle(yon, ad, boyut, oturum) {
 const PROGRAM_UZANTILARI = new Set([
   "exe", "com", "pif", "msi", "msix", "appx", "bat", "cmd", "ps1", "vbs", "vbe", "js", "jse", "wsf",
   "scr", "lnk", "url", "hta", "jar", "reg", "app", "dmg", "pkg", "command", "apk", "html", "htm",
-  "xhtml", "mht", "mhtml", "svg",
+  "xhtml", "mht", "mhtml", "svg", "cpl", "msc", "msp", "chm", "scf", "wsh", "psm1", "xll", "jnlp",
+  "library-ms", "settingcontent-ms", "iso", "img", "vhd", "vhdx", "docm", "dotm", "xlsm", "xltm",
+  "xlam", "pptm", "potm", "ppam", "sh", "py", "desktop", "appimage", "deb", "rpm", "ipa", "webloc",
+  "inetloc",
 ]);
 const programMi = ad => PROGRAM_UZANTILARI.has(ad.split(".").pop().toLowerCase()) && ad.includes(".");
 
@@ -765,12 +768,16 @@ function yerelAdresMi(adres) {
 // İki yönde de SDP'de yalnız yerel ağ adresli "host" adayları bırakılır. Dış adres (srflx) ayrıca
 // ve yalnız aynı ağda paylaşılır (adaylarSec). Karşının yazdığı başka her aday (genel adres, relay,
 // prflx) atılır: tarayıcı oraya paket göndermez, IP adresi de karşıya gitmez. Giden SDP'den de
-// genel adresler (ör. gizlenmemiş IPv6 adresi) çıkar.
-const yalnizYerel = sdp => sdp.split("\r\n").filter(l => {
-  if (!l.startsWith("a=candidate:")) return true;
+// genel adresler (ör. gizlenmemiş IPv6 adresi) çıkar. Satırlar her tür satır sonuyla bölünür
+// (karşı taraf yalın "\n" kullanarak süzgeci atlatamasın) ve "candidate" geçen başka her satır
+// atılır. Tarayıcı "c=" satırına ve "m=" kapısına varsayılan adayı (çoğu zaman dış adresi) yazar;
+// bunlar adres bildirmeyen değerlerle değiştirilir.
+const yalnizYerel = sdp => sdp.split(/\r\n|\r|\n/).filter(l => {
+  if (!/candidate/i.test(l)) return true;
+  if (!l.startsWith("a=candidate:")) return false;
   const { adres, tur } = adayCoz(l);
   return tur === "host" && yerelAdresMi(adres);
-}).join("\r\n");
+}).map(l => l.startsWith("c=") ? "c=IN IP4 0.0.0.0" : l.replace(/^(m=\S+) \d+ /, "$1 9 ")).join("\r\n");
 
 const adayPaketi = a => ({ candidate: a.candidate, sdpMid: a.sdpMid, sdpMLineIndex: a.sdpMLineIndex });
 
@@ -1027,8 +1034,9 @@ function dogrudanAl(kanal, oturum) {
 // Karıştırılabilecek 0, 1, I, L ve O harfleri yok. 8 karakter yaklaşık 40 bit.
 const KOD_HARFLERI = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
 const KOD_UZUNLUGU = 8;
-const KOD_EN_COK_RET = 3;
-let kodRetSayisi = 0;
+// Bir kodla en çok bu kadar doğrulama denemesi yapılabilir; sonra kod kendiliğinden yenilenir.
+const KOD_EN_COK_DENEME = 3;
+let kodDenemesi = 0;
 
 function kodUret() {
   // Mod yanlılığı olmasın diye 248'den (31 × 8) büyük baytlar atılır.
@@ -1280,11 +1288,21 @@ async function gelenBaglanti(gelen, d) {
     }
     // Doğrulama değerleri: bağlananın özeti tanışma mesajındaydı; bu taraf kendi değerini gönderir,
     // karşı taraf kendi değerini açar ve özetle karşılaştırılır.
+    // Kodla gelen her deneme, bu taraf değerini göndermeden önce sayılır: kodu bilen biri tutmayan
+    // denemeyi açmadan bırakıp doğrulama kodunu tekrar tekrar deneyemesin. Sınır dolunca ya da kod
+    // yenilenince eski koda gelen istekler reddedilir.
+    const kodTukendiyse = () => {
+      if (kodla && d === kodDugumu && kodDenemesi >= KOD_EN_COK_DENEME) kodGoster();
+    };
     let kod;
     try {
       const karsiTaahhut = baslik.taahhut;
       if (typeof karsiTaahhut !== "string" || !/^[0-9a-f]{64}$/.test(karsiTaahhut)) {
         baglanti.kapat(ESKI);
+        return;
+      }
+      if (kodla && (d !== kodDugumu || ++kodDenemesi > KOD_EN_COK_DENEME)) {
+        baglanti.kapat(REDDEDILDI);
         return;
       }
       const benimDeger = rastgeleDeger();
@@ -1296,6 +1314,7 @@ async function gelenBaglanti(gelen, d) {
     } catch (e) {
       console.error(e);
       baglanti.kapat(KAPANDI);
+      kodTukendiyse();
       return;
     }
     const sor = kodla || qrIle || onayGerekliMi() || (mevcut && mevcut.karsiKimlik !== karsiKimlik);
@@ -1304,9 +1323,7 @@ async function gelenBaglanti(gelen, d) {
       if (kabul !== true) {
         if (kabul !== MESGUL) engellenenler.set(karsiKimlik, Date.now() + ENGEL_SURESI);
         baglanti.kapat(kabul === MESGUL ? MESGUL : REDDEDILDI);
-        // Kodu bilen biri ekranı sürekli soruyla dolduramasın: reddedilen her istek sayılır,
-        // KOD_EN_COK_RET'e ulaşınca kod kendiliğinden yenilenir.
-        if (kodla && kabul !== MESGUL && d === kodDugumu && ++kodRetSayisi >= KOD_EN_COK_RET) kodGoster();
+        kodTukendiyse();
         return;
       }
       // Soru ekrandayken kod başka bir istekle kullanılmış olabilir.
@@ -1546,7 +1563,7 @@ async function kodGoster() {
   }
   kodDugumu = yeni;
   kodKullanildi = false;
-  kodRetSayisi = 0;
+  kodDenemesi = 0;
   dugme.hidden = true;
   $("kod").textContent = gruplara(kod, 4);
   $("kod").hidden = $("kod-aciklama").hidden = false;
