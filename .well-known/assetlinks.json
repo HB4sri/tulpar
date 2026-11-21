@@ -1,0 +1,14 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.hb4sri.tulpar",
+      "sha256_cert_fingerprints": [
+        "26:14:90:69:65:00:A3:C7:FD:CC:8C:66:52:1D:AD:CB:96:13:AB:62:CA:EB:CB:AF:2A:C8:A2:0C:17:CD:8F:00"
+      ]
+    }
+  }
+]

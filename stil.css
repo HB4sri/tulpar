@@ -266,6 +266,15 @@ a.logo { color: inherit; text-decoration: none; }
 .uygulama main { padding-top: 8px; }
 .uygulama button { border-radius: 999px; }
 .uygulama .kart { border-color: transparent; box-shadow: none; }
+/* Uygulama hissi: dokununca mavi vurgu yok, arayüz metni uzun basınca seçilmez (kodlar ve
+   yazı kutuları seçilebilir), kalın yazılar Material'in ağırlığında (500). Sayfanın altı yüzen
+   gezinme adasının arkasında kalmasın diye uygulama --uygulama-alt değişkenini verir. */
+:root.uygulama { -webkit-tap-highlight-color: transparent; }
+.uygulama body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.uygulama :is(input, #kod, #onay-kod, #dogrulama-kodu) { -webkit-user-select: text; user-select: text; }
+.uygulama main { padding-bottom: calc(40px + var(--uygulama-alt, 0px)); }
+.uygulama :is(#cihaz-adi, button.bag, #adimlar i, #adimlar li.etkin, #durum.tamam, #durum.hata, button,
+  #onay-metin, #kod-formu label, .liste-ust h2, .ad, #aktarimlar .not, li.tamam .metin, li.hata .metin) { font-weight: 500; }
 .uygulama .bilgi button.kaydet {
   display: inline-flex; align-items: center; min-height: 32px; padding: 0 16px;
   background: var(--vurgu); color: var(--vurgu-ustu); border: 0; font-weight: 600;
