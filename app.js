@@ -411,8 +411,20 @@ const SIMGE_GIDEN = svg('<path d="M12 19V5M6 11l6-6 6 6"/>');
 const SIMGE_GELEN = svg('<path d="M12 5v14M6 13l6 6 6-6"/>');
 const SIMGE_SIL = svg('<path d="M6 6l12 12M18 6L6 18"/>');
 
+// Android uygulamasına aktarımın başladığını ve bittiğini bildirir (bildirim ve telefondaki geçmiş
+// için). Yalnız uygulamanın içinde ve köprü varken; dosyanın içeriği gitmez, yalnız adı, boyutu,
+// yönü ve karşı cihazın adı.
+let satirSayaci = 0;
+function uygulamayaBildir(olay) {
+  if (!UYGULAMA || typeof TulparAndroid !== "object") return;
+  try { TulparAndroid.postMessage(JSON.stringify({ tip: "olay", ...olay })); } catch {}
+}
+
 // Satır karşı cihazın kimliğiyle işaretlenir; o cihaz adını değiştirince satırdaki ad da güncellenir.
 function satirEkle(yon, ad, boyut, oturum) {
+  const kimlik = ++satirSayaci;
+  const olay = durum => uygulamayaBildir({ olay: durum, kimlik, yon, ad, boyut, cihaz: oturum.ad });
+  olay("basladi");
   const li = document.createElement("li");
   li.innerHTML = `
     <span class="yon">${yon === "giden" ? SIMGE_GIDEN : SIMGE_GELEN}</span>
@@ -437,6 +449,7 @@ function satirEkle(yon, ad, boyut, oturum) {
   let sonCizim = 0;
 
   return {
+    kimlik,
     // Ekran saniyede en çok beş kez güncellenir.
     ilerle(bayt, zorla = false) {
       const simdi = performance.now();
@@ -450,6 +463,7 @@ function satirEkle(yon, ad, boyut, oturum) {
     },
     yaz(m) { metin.textContent = m; },
     tamam(m, ekOge) {
+      olay("bitti");
       li.className = "tamam";
       duyur(`${m}. Dosya: ${ad}`);
       cubuk.style.transform = "scaleX(1)";
@@ -457,6 +471,7 @@ function satirEkle(yon, ad, boyut, oturum) {
       ek.replaceChildren(...(ekOge ? [ekOge] : []));
     },
     hata(m) {
+      olay("hata");
       li.className = "hata";
       duyur(`${m}. Dosya: ${ad}`);
       metin.textContent = m;
@@ -653,9 +668,9 @@ function uygulamaYaniti() {
   });
 }
 
-async function uygulamayaKaydet(blob, ad) {
+async function uygulamayaKaydet(blob, ad, kimlik) {
   let yanit = uygulamaYaniti();
-  TulparAndroid.postMessage(JSON.stringify({ tip: "basla", ad, boyut: blob.size }));
+  TulparAndroid.postMessage(JSON.stringify({ tip: "basla", ad, boyut: blob.size, kimlik }));
   if ((await yanit).tip !== "hazir") return false;
   for (let i = 0; i < blob.size; i += UYGULAMA_PARCASI) {
     const parca = await blob.slice(i, i + UYGULAMA_PARCASI).arrayBuffer();
@@ -676,7 +691,7 @@ function uygulamaKaydetDugmesi(blob, ad, satir, boyut) {
   bellekPayi.set(dugme, boyut);
   dugme.onclick = () => {
     dugme.disabled = true;
-    const is_ = kayitSirasi.then(() => uygulamayaKaydet(blob, ad)).catch(e => { console.error(e); return false; });
+    const is_ = kayitSirasi.then(() => uygulamayaKaydet(blob, ad, satir.kimlik)).catch(e => { console.error(e); return false; });
     kayitSirasi = is_;
     is_.then(oldu => {
       if (!oldu) {
