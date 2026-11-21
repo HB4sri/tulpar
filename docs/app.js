@@ -3,6 +3,15 @@
 const ILK_ADRES_BILGISI = location.hash.slice(1);
 if (ILK_ADRES_BILGISI) history.replaceState(null, "", location.pathname + location.search);
 
+// Tulpar Android uygulamasının içinde mi: uygulama sitenin kendi içindeki kopyasını bu adresten
+// sunar. Bu adres internetten erişilemez; Android'in tarayıcı bileşeni yalnız uygulamanın kendi
+// dosyalarını buradan verir. Uygulamada sitenin logosu ve alt bilgisi gizlenir (stil.css).
+const UYGULAMA = location.hostname === "appassets.androidplatform.net";
+if (UYGULAMA) document.documentElement.classList.add("uygulama");
+// QR kod ve kopyalanan bağlantı her zaman sitenin adresini taşır: karşı cihaz uygulamanın iç
+// adresini açamaz.
+const SAYFA_ADRESI = UYGULAMA ? "https://tulpar.page/" : `${location.origin}${location.pathname}`;
+
 // Yayında dosya adresleri sürümle (?v=) istenir; önbellekte eski çekirdek ile yeni sayfa karışmasın.
 const SURUM = new URL(import.meta.url).searchParams.get("v") ?? "";
 const pkgAdresi = ad => new URL(`./pkg/${ad}?v=${SURUM}`, import.meta.url).href;
@@ -630,10 +639,70 @@ async function dosyaAl(alici, baslik, ilk, oturum) {
   }
 }
 
+// Android uygulamasında dosya, uygulamanın verdiği köprüyle (TulparAndroid; yalnız bu sayfanın
+// adresine açılır) parça parça uygulamaya geçer ve uygulama telefonun depolamasına yazar. Her
+// parçadan sonra uygulamanın yanıtı beklenir: bellekte parça birikmez. Kayıtlar sırayla yapılır.
+const UYGULAMA_PARCASI = 1024 * 1024;
+let kayitSirasi = Promise.resolve();
+
+function uygulamaYaniti() {
+  return new Promise(coz => {
+    TulparAndroid.onmessage = e => {
+      try { coz(JSON.parse(e.data)); } catch { coz({ tip: "hata" }); }
+    };
+  });
+}
+
+async function uygulamayaKaydet(blob, ad) {
+  let yanit = uygulamaYaniti();
+  TulparAndroid.postMessage(JSON.stringify({ tip: "basla", ad, boyut: blob.size }));
+  if ((await yanit).tip !== "hazir") return false;
+  for (let i = 0; i < blob.size; i += UYGULAMA_PARCASI) {
+    const parca = await blob.slice(i, i + UYGULAMA_PARCASI).arrayBuffer();
+    yanit = uygulamaYaniti();
+    TulparAndroid.postMessage(parca);
+    if ((await yanit).tip !== "devam") return false;
+  }
+  yanit = uygulamaYaniti();
+  TulparAndroid.postMessage(JSON.stringify({ tip: "bitti" }));
+  return (await yanit).tip === "kaydedildi";
+}
+
+function uygulamaKaydetDugmesi(blob, ad, satir, boyut) {
+  const dugme = document.createElement("button");
+  dugme.textContent = "Kaydet";
+  dugme.className = "kaydet";
+  kaydedilmemis.add(dugme);
+  bellekPayi.set(dugme, boyut);
+  dugme.onclick = () => {
+    dugme.disabled = true;
+    const is_ = kayitSirasi.then(() => uygulamayaKaydet(blob, ad)).catch(e => { console.error(e); return false; });
+    kayitSirasi = is_;
+    is_.then(oldu => {
+      if (!oldu) {
+        dugme.disabled = false;
+        return;
+      }
+      kaydedilmemis.delete(dugme);
+      if (bellekPayi.has(dugme)) {
+        bellektekiBayt -= bellekPayi.get(dugme);
+        bellekPayi.delete(dugme);
+      }
+      dugme.replaceWith("Kaydedildi");
+    });
+  };
+  satir.tamam("Alındı", dugme);
+}
+
 // Alınan parçalardan dosyayı oluşturur ve satıra Kaydet bağlantısını koyar.
 function dosyaHazir(parcalar, ad, satir, boyut) {
   // Tür her zaman ikili dosya: karşının verdiği tür (ör. text/html) sayfada açılıp çalışmasın.
   const blob = new Blob(parcalar, { type: "application/octet-stream" });
+  if (UYGULAMA && typeof TulparAndroid === "object") {
+    uygulamaKaydetDugmesi(blob, ad, satir, boyut);
+    if (programMi(ad)) satir.not("Program dosyası: Yalnızca güvendiğiniz bir kaynaktan geldiyse açın.");
+    return;
+  }
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
   a.download = ad;
@@ -1664,7 +1733,7 @@ function biletiAl() {
 }
 
 function qrGoster() {
-  const adres = `${location.origin}${location.pathname}#${biletKisalt(dugum.bilet())}.${qrSirri()}`;
+  const adres = `${SAYFA_ADRESI}#${biletKisalt(dugum.bilet())}.${qrSirri()}`;
   const qr = qrcode(0, "M");
   qr.addData(adres);
   qr.make();
@@ -1702,7 +1771,7 @@ async function basla() {
   }
   // Cloudflare'in ikinci adresinde (tulpar-24u.pages.dev) ve eski sürümlerin adreslerinde çalışma:
   // tulpar.page kapatıldığında site başka bir adresten kullanılamasın. Yerel adresler test için.
-  if (!["tulpar.page", "localhost", "127.0.0.1", "[::1]"].includes(location.hostname)) {
+  if (!["tulpar.page", "appassets.androidplatform.net", "localhost", "127.0.0.1", "[::1]"].includes(location.hostname)) {
     durumYaz("Bu sayfa yalnızca tulpar.page adresinde çalışır.", "hata");
     return;
   }

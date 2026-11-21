@@ -241,3 +241,32 @@ a.logo { color: inherit; text-decoration: none; }
 .tani-ozet { font-weight: 600; }
 .tani-ozet.hata { color: var(--hata); }
 .tani-dugmeler { display: flex; gap: 10px; flex-wrap: wrap; }
+
+/* Tulpar Android uygulamasının içinde (app.js "uygulama" sınıfı): sitenin logosu, alt bilgisi,
+   giriş metni ve tema seçici gizlenir; cihaz adı kalır. Renkler ve köşeler uygulamanın Material 3
+   temasına (Tulpar mavisi) uyar, sayfa uygulamanın bir parçası gibi görünür. */
+:root.uygulama {
+  --zemin: #f9f9ff; --yuzey: #ededf4; --yuzey-2: #e7e8ee; --cizgi: #c3c6cf;
+  --yazi: #191c20; --soluk: #43474e; --vurgu: #3f72af; --vurgu-ustu: #ffffff; --vurgu-hafif: #d6e3ff;
+  --vurgu-yazi: #3f72af; --basari: #3f72af; --basari-hafif: #d6e3ff; --hata: #ba1a1a;
+  --golge: none; --yaricap: 28px;
+}
+@media (prefers-color-scheme: dark) {
+  :root.uygulama {
+    --zemin: #0f131a; --yuzey: #1c2027; --yuzey-2: #262a31; --cizgi: #43474e;
+    --yazi: #e1e2e9; --soluk: #c3c6cf; --vurgu: #a8c8ff; --vurgu-ustu: #0a305f; --vurgu-hafif: #284777;
+    --vurgu-yazi: #a8c8ff; --basari: #a8c8ff; --basari-hafif: rgba(168, 200, 255, .15); --hata: #ffb4ab;
+  }
+}
+.uygulama .logo, .uygulama footer, .uygulama .giris { display: none; }
+.uygulama .ust { background: transparent; color: var(--yazi); border: 0; padding-top: 0; }
+.uygulama .ust .kap { min-height: 0; }
+.uygulama .cihaz { margin-left: 0; justify-content: flex-start; color: var(--soluk); }
+.uygulama #cihaz-adi, .uygulama button.bag { color: var(--yazi); }
+.uygulama main { padding-top: 8px; }
+.uygulama button { border-radius: 999px; }
+.uygulama .kart { border-color: transparent; box-shadow: none; }
+.uygulama .bilgi button.kaydet {
+  display: inline-flex; align-items: center; min-height: 32px; padding: 0 16px;
+  background: var(--vurgu); color: var(--vurgu-ustu); border: 0; font-weight: 600;
+}
