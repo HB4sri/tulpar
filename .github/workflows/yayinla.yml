@@ -69,6 +69,8 @@ jobs:
           name: site
           path: docs
           retention-days: 1
+          # Adı noktayla başlayan dosyalar (.nojekyll, .well-known/assetlinks.json) da yayımlanır.
+          include-hidden-files: true
 
   # Derlenmiş site "yayin" dalına yeni bir commit olarak eklenir; Cloudflare Pages bu dalı izler ve
   # tulpar.page'de yayımlar (kendisi derleme yapmaz). Dalın geçmişi silinmez ve değiştirilmez
