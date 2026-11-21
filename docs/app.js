@@ -1700,6 +1700,12 @@ async function basla() {
     durumYaz("Tulpar başka bir sayfanın içinde açılamaz. Adresi doğrudan tarayıcıya yazın.", "hata");
     return;
   }
+  // Cloudflare'in ikinci adresinde (tulpar-24u.pages.dev) ve eski sürümlerin adreslerinde çalışma:
+  // tulpar.page kapatıldığında site başka bir adresten kullanılamasın. Yerel adresler test için.
+  if (!["tulpar.page", "localhost", "127.0.0.1", "[::1]"].includes(location.hostname)) {
+    durumYaz("Bu sayfa yalnızca tulpar.page adresinde çalışır.", "hata");
+    return;
+  }
   adiGoster();
   const sekmeHazir = sekmeyiHazirla();
   const wasmYok = "Bu tarayıcıda WebAssembly çalışmıyor. iPhone'da Kilitlenme Modu açıksa Tulpar çalışmaz.";
