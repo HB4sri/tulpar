@@ -1,6 +1,9 @@
 # WebAssembly çekirdeğini GitHub'ın sunucusunda derler, bilinen güvenlik açıklarını tarar ve
 # docs/ klasörünü "yayin" dalı üzerinden Cloudflare Pages'te (tulpar.page) yayımlar. Yayımlanan bütün
-# dosyaların SHA-256 özetleri docs/SHA256SUMS dosyasında ve iş akışı günlüğünde görünür.
+# dosyaların SHA-256 özetleri SHA256SUMS dosyasında ve iş akışı günlüğünde görünür.
+#
+# Yalnız main yayımlanır. Derleme üçüncü taraf derleme betikleri çalıştırdığı için yayına yalnız iki
+# çekirdek dosyasını verir; sitenin öbür dosyaları yayın işinde deponun temiz kopyasından alınır.
 #
 # Eylemler değiştirilemez commit SHA'larıyla çağrılır (yanlarında sürüm etiketi yazar).
 name: Derle ve yayımla
@@ -19,6 +22,7 @@ concurrency:
 
 jobs:
   derle:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -49,42 +53,59 @@ jobs:
           AR_wasm32_unknown_unknown: llvm-ar
         run: node derle.mjs
 
-      # Dosya adreslerine commit eklenir; tarayıcı önbelleğinde eski ve yeni dosyalar karışmaz.
-      # Alt bilgideki sürüm numarası package.json'dan gelir.
-      - name: Sürüm
-        run: |
-          sed -i "s/__SURUM__/${GITHUB_SHA::12}/g" docs/index.html docs/tanilama/index.html
-          SURUM_ADI=$(node -p "require('./package.json').version")
-          echo "$SURUM_ADI" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'
-          sed -i "s/__SURUM_ADI__/${SURUM_ADI}/g" docs/index.html docs/tanilama/index.html
-
-      # Yayımlanan bütün dosyaların özetleri (sürüm yazıldıktan sonra, yayımlanan hâlleriyle).
-      - name: Özetler
-        working-directory: docs
-        run: find . -type f ! -name SHA256SUMS -printf '%P\n' | LC_ALL=C sort | xargs -d '\n' sha256sum | tee SHA256SUMS
-
-      # Çıktı cloudflare işi için saklanır.
+      # Yayın işine yalnız derlenen çekirdek geçer.
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: site
-          path: docs
+          name: cekirdek
+          path: docs/pkg
           retention-days: 1
-          # Adı noktayla başlayan dosyalar (.nojekyll, .well-known/assetlinks.json) da yayımlanır.
-          include-hidden-files: true
+          if-no-files-found: error
 
   # Derlenmiş site "yayin" dalına yeni bir commit olarak eklenir; Cloudflare Pages bu dalı izler ve
   # tulpar.page'de yayımlar (kendisi derleme yapmaz). Dalın geçmişi silinmez ve değiştirilmez
   # (kural seti: silme ve geçmişi yeniden yazma kapalı), böylece her yayın geriye dönük görülebilir.
   cloudflare:
+    if: github.ref == 'refs/heads/main'
     needs: derle
     runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          path: kaynak
+
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: site
-          path: site
+          name: cekirdek
+          path: cekirdek
+
+      # Site temiz kopyadan; derlemeden beklenen iki dosya dışında bir şey geldiyse yayın durur.
+      - name: Siteyi birleştir
+        run: |
+          gelen=$(find cekirdek -mindepth 1 -printf '%y %P\n' | LC_ALL=C sort)
+          beklenen=$(printf 'f tulpar_cekirdek.js\nf tulpar_cekirdek_bg.wasm')
+          if [ "$gelen" != "$beklenen" ]; then echo "Derlemeden beklenmeyen dosya geldi:"; echo "$gelen"; exit 1; fi
+          cp -R kaynak/docs site
+          test ! -e site/pkg
+          mkdir site/pkg
+          cp cekirdek/tulpar_cekirdek.js cekirdek/tulpar_cekirdek_bg.wasm site/pkg/
+          test -z "$(find site -type l -o -name .git)"
+
+      # Dosya adreslerine commit eklenir; tarayıcı önbelleğinde eski ve yeni dosyalar karışmaz.
+      # Alt bilgideki sürüm numarası package.json'dan gelir.
+      - name: Sürüm
+        run: |
+          sed -i "s/__SURUM__/${GITHUB_SHA::12}/g" site/index.html site/tanilama/index.html site/404.html
+          SURUM_ADI=$(jq -r .version kaynak/package.json)
+          echo "$SURUM_ADI" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'
+          sed -i "s/__SURUM_ADI__/${SURUM_ADI}/g" site/index.html site/tanilama/index.html
+
+      # Yayımlanan bütün dosyaların özetleri (sürüm yazıldıktan sonra, yayımlanan hâlleriyle).
+      - name: Özetler
+        working-directory: site
+        run: find . -type f ! -name SHA256SUMS -printf '%P\n' | LC_ALL=C sort | xargs -d '\n' sha256sum | tee SHA256SUMS
 
       - name: yayin dalına ekle
         working-directory: site

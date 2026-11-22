@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- Sayfa yalnız kendi dosyalarını yükleyebilir; fetch ve WebSocket bağlantıları yalnız n0 relay'lerine gidebilir. WebRTC (aynı ağda doğrudan bağlantı ve Cloudflare STUN) bu kuralın dışındadır; app.js'te ayrıca sınırlanır. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self' https://*.relay.n0.iroh.link wss://*.relay.n0.iroh.link; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self' https://*.relay.n0.iroh.link wss://*.relay.n0.iroh.link; img-src 'self' data: blob:; style-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <title>Tulpar</title>
 <link rel="icon" href="simge.svg" type="image/svg+xml">
@@ -110,7 +110,7 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
           Dosya gönder
         </button>
-        <p class="soluk kucuk">Dosyaları buraya sürükleyip de bırakabilirsiniz.<br>Aynı ağdaysanız dosyalar doğrudan gider. Değilse ücretsiz aktarma sunucusu kullanılır; hız yaklaşık 0,4&nbsp;MB/sn.</p>
+        <p class="soluk kucuk">Dosyaları buraya sürükleyip de bırakabilirsiniz.<br>Aynı ağdaysanız dosyalar doğrudan gider. Değilse ücretsiz aktarma sunucusu kullanılır. Bu yol yavaştır, 10&nbsp;MB yaklaşık 4&nbsp;dakika sürebilir.</p>
         <input id="dosyalar" type="file" multiple hidden>
       </div>
       <div class="liste-ust">
@@ -129,7 +129,7 @@
     <span id="surum" class="surum" data-surum="__SURUM_ADI__">Tulpar</span>
     <p class="guvence">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"/><path d="M9 12l2 2 4-4"/></svg>
-      <span>Tulpar ücretsiz ve reklamsız, kişisel bir projedir. Dosyalar uçtan uca şifreli gider ve hiçbir yerde saklanmaz. Cihazlar aynı ağda değilse n0'ın ücretsiz aktarma sunucuları kullanılır. <a href="https://github.com/HB4sri/tulpar#dosyalar-nereden-geçer" target="_blank" rel="noopener noreferrer">Ayrıntılar</a></span>
+      <span>Tulpar ücretsiz ve reklamsız, kişisel bir projedir. Dosyalar uçtan uca şifreli gider ve hiçbir sunucuda saklanmaz. Cihazlar aynı ağda değilse n0'ın ücretsiz aktarma sunucuları kullanılır. <a href="https://github.com/HB4sri/tulpar#dosyalar-nereden-geçer" target="_blank" rel="noopener noreferrer">Ayrıntılar</a></span>
     </p>
     <div class="sag">
       <div class="tema" role="radiogroup" aria-label="Tema">

@@ -37,8 +37,8 @@ misafir ağları, cihazları birbirinden ayıran ağlar) aktarma sunucusu kullan
 Ekranda hangi yolun kullanıldığı yazar. Bunun için her bağlantıda cihazın internetteki adresi
 Cloudflare'in STUN sunucusundan öğrenilir; dosyalar bu sunucudan geçmez.
 
-- **Hız:** Aktarma sunucusunda ölçülen hız saniyede yaklaşık 0,4 MB'dir; 10 MB'lik bir dosya yaklaşık 30 saniyede
-  gider. n0 hız sınırlarını yayımlamaz, gerektiğinde değiştirir.
+- **Hız:** Aktarma sunucusu hızı sınırlar. Son ölçümde saniyede yaklaşık 45 KB idi; 10 MB'lik bir dosya
+  yaklaşık 4 dakika sürer. n0 hız sınırlarını yayımlamaz, gerektiğinde değiştirir.
 - **Kullanım büyürse:** Tulpar, n0'ın ücretli aktarma sunucularına ya da kendi aktarma sunucusuna
   geçirilir. Koşullar değişirse bu bölüm de güncellenir.
 
@@ -62,12 +62,13 @@ Sonuçları "Sonuçları kopyala" düğmesiyle alabilirsiniz.
   yüzden araya kimse giremez. Karşı cihazdan yalnızca yerel ağ adresleri kabul edilir. Cihazın
   internetteki adresi karşı tarafa yalnızca iki cihazın adresi aynıysa gönderilir. İki cihaz
   adreslerin aynı olup olmadığını, adresleri birbirine göstermeden anlar (CPace yöntemi). Karşı
-  taraf her bağlantıda yalnızca tek bir tahminin doğru olup olmadığını öğrenebilir.
+  taraf her bağlantıda IPv4 ve IPv6 için yalnızca birer tahminin doğru olup olmadığını öğrenebilir.
+  Bağlantı sayısı da sınırlıdır.
 - QR kod, bağlanılacak cihazın açık anahtarını ve tek kullanımlık 128 bitlik bir değer içerir.
-  Değer her bağlantıda ve 3 dakikada bir yenilenir; bağlı cihaz yokken sekmenin anahtarı da
-  yenilenir. QR ile gelen yeni cihaz için her zaman onay sorulur; değeri bilmeyen tanımadık
-  cihazların istekleri soru sorulmadan reddedilir. Onay sorusunda bağlanan cihazın kendine verdiği
-  ad tırnak içinde yazar.
+  Değer her bağlantıda ve 3 dakikada bir yenilenir. Bağlı cihaz yokken sekmenin anahtarı da
+  yenilenir (son bağlantıdan 15 dakika sonra). QR ile gelen yeni cihaz için her zaman onay
+  sorulur; değeri bilmeyen tanımadık cihazların istekleri soru sorulmadan reddedilir. Onay
+  sorusunda bağlanan cihazın kendine verdiği ad tırnak içinde yazar.
 - Bağlantı bilerek kesildiyse, iki taraftan biri yeniden bağlanmak istediğinde diğerinde onay sorulur.
 - 8 karakterlik kod 5 dakika geçerlidir ve bir kez kullanılabilir. Anahtar, koddan ve kodun
   gösterildiği 5 dakikalık zaman diliminden PBKDF2 (200.000 tur) ile türetilir. Önceden
@@ -79,8 +80,9 @@ Sonuçları "Sonuçları kopyala" düğmesiyle alabilirsiniz.
 - Doğrulama kodu bağlantının TLS oturumundan ve iki cihazın rastgele seçtiği birer değerden
   türetilir. Bağlanan cihaz kendi değerini önce mühürlü olarak gönderir ve karşının değerini
   aldıktan sonra açar. Bu yüzden araya giren biri iki ekrandaki kodu deneme yanılmayla
-  eşitleyemez. Kodların şans eseri aynı çıkma olasılığı milyonda birdir. QR ile bağlanmada araya
-  hiç girilemez, çünkü telefon bilgisayarın anahtarını QR koddan doğrular.
+  eşitleyemez. Kodların şans eseri aynı çıkma olasılığı milyonda birdir. QR kodu okutan cihaz,
+  karşısındakinin anahtarını koddan doğrular. QR kodu gösteren cihaz ise karşısındakini doğrulama
+  koduyla tanır. Bu yüzden kodu iki cihazda da karşılaştırın.
 - Alınan dosyalar kaydedilene ya da listeden kaldırılana kadar tarayıcının belleğinde durur.
   Toplamları 2 GB (iPhone'da 600 MB) ile sınırlıdır. Kaydedilen dosyanın bellekteki kopyası bir
   dakika sonra bırakılır.
@@ -119,7 +121,8 @@ Sonuçları "Sonuçları kopyala" düğmesiyle alabilirsiniz.
 - Ağ yöneticisi ve internet sağlayıcısı: bağlanılan sunucu adları ve veri miktarı. STUN sorgusu
   şifresiz gider; aynı ağdaki doğrudan aktarımın varlığı ve miktarı da görülebilir.
 - Eşleşilen cihaz: cihazınızın adı; doğrudan bağlantı denenirken cihazın yerel ağ adresi ya da
-  tarayıcının ürettiği geçici yerel adı; iki cihaz aynı ağdaysa ortak internet adresi.
+  tarayıcının ürettiği geçici yerel adı (Android'de yerel IP adresi); iki cihaz aynı ağdaysa ortak
+  internet adresi.
 
 **Bir web uygulamasının sağlayamadıkları**
 

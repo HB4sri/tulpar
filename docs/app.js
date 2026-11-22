@@ -35,6 +35,9 @@ const ONAY_SURESI = 120000;
 const KOD_SURESI = 5 * 60000;
 const QR_SURESI = 3 * 60000;
 const ENGEL_SURESI = 60000;
+const BOSTA_SURESI = 2 * 60000; // alınan dosyada bu kadar veri gelmezse alım biter
+const GONDERME_SURESI = 3 * 60000; // gönderilen bir parça bu kadar sürede gitmezse gönderim biter
+const BITIRME_SURESI = 10 * 60000; // tamponda kalan son parçalar yavaş aktarma sunucusunda dakikalar sürebilir
 const EN_COK_BEKLEYEN = 4;
 
 // Kapanma nedenleri. Karşı taraf yalnız DURDURAN_NEDENLER'de kendiliğinden yeniden bağlanmayı bırakır.
@@ -86,6 +89,8 @@ const SIR_HAFIZASI = "tulpar-sir";
 const BILET_HAFIZASI = "tulpar-bilet";
 const KARSI_HAFIZASI = "tulpar-karsi";
 const ONAY_HAFIZASI = "tulpar-onay";
+const SIR_BITIS_HAFIZASI = "tulpar-sir-bitis"; // QR değerinin bittiği an (yenileme uzatmaz)
+const TAHMIN_HAFIZASI = "tulpar-tahmin"; // tutmayan adres karşılaştırmalarının anları
 const DOGRULANAN_HAFIZASI = "tulpar-dogrulanan"; // kodu bu cihazda onaylanmış karşı kimlik
 
 function hafizaOku(ad) {
@@ -159,11 +164,23 @@ function sekmeAnahtari() {
 // Kullanılınca ve QR_SURESI'nde bir yenilenir.
 function qrSirri() {
   let sir = hafizaOku(SIR_HAFIZASI);
-  if (!sir || !/^[A-Za-z0-9_-]{22}$/.test(sir)) {
+  if (!sir || !/^[A-Za-z0-9_-]{22}$/.test(sir) || Date.now() >= qrBitisAni()) {
     sir = base64url(crypto.getRandomValues(new Uint8Array(16)));
     hafizaYaz(SIR_HAFIZASI, sir);
+    hafizaYaz(SIR_BITIS_HAFIZASI, String(Date.now() + QR_SURESI));
   }
   return sir;
+}
+
+// Değerin bittiği an; yoksa ya da saat geri alındığı için QR_SURESI'nden uzaksa 0.
+function qrBitisAni() {
+  const bitis = Number(hafizaOku(SIR_BITIS_HAFIZASI));
+  return bitis && bitis <= Date.now() + QR_SURESI ? bitis : 0;
+}
+
+// Süre, kabul anında denetlenir: uykudaki sekmede yenileme zamanlayıcısı işlememiş olabilir.
+function qrGecerli(sir) {
+  return sir === hafizaOku(SIR_HAFIZASI) && Date.now() < qrBitisAni();
 }
 
 function qrYenile() {
@@ -453,6 +470,7 @@ function satirEkle(yon, ad, boyut, oturum, baslar = true) {
   const olay = durum => uygulamayaBildir({ olay: durum, kimlik, yon, ad, boyut, cihaz: oturum.ad });
   if (baslar) olay("basladi");
   const li = document.createElement("li");
+  li.dataset.yon = yon;
   li.innerHTML = `
     <span class="yon">${yon === "giden" ? SIMGE_GIDEN : SIMGE_GELEN}</span>
     <div class="ust-satir"><span class="ad"></span><span class="boyut"></span>
@@ -576,8 +594,9 @@ async function dosyaGonder(dosya, hedef) {
 }
 
 async function irohGonder(oturum, dosya, satir) {
-  const gonderici = await oturum.baglanti.akis_ac();
-  await gonderici.yaz(cerceve({ ad: dosya.name, boyut: dosya.size }));
+  // Okumayan ya da akış açtırmayan eş gönderim sırasını süresiz tutamaz.
+  const gonderici = await zamanAsimi(oturum.baglanti.akis_ac(), GONDERME_SURESI);
+  await zamanAsimi(gonderici.yaz(cerceve({ ad: dosya.name, boyut: dosya.size })), GONDERME_SURESI);
 
   let gonderilen = 0;
   satir.ilerle(0, true);
@@ -587,13 +606,13 @@ async function irohGonder(oturum, dosya, satir) {
     const parca = new Uint8Array(await sonraki);
     const bas = gonderilen + parca.length;
     if (bas < dosya.size) sonraki = dosya.slice(bas, bas + PARCA).arrayBuffer();
-    await gonderici.yaz(parca);
+    await zamanAsimi(gonderici.yaz(parca), GONDERME_SURESI);
     gonderilen = bas;
     satir.ilerle(gonderilen);
   }
   satir.ilerle(gonderilen, true);
   satir.yaz("Diğer cihazın alması bekleniyor…");
-  await gonderici.bitir();
+  await zamanAsimi(gonderici.bitir(), BITIRME_SURESI);
 }
 
 // Doğrudan yol onayla birlikte denenmeye başlar. Onay beklemiş dosya hemen çıkarsa aynı ağda bile
@@ -632,12 +651,23 @@ async function tanitimGonder(baglanti, ek = {}) {
 // anda alınan dosya sayısı sınırlıdır; bağlı cihaz sekmeyi belleği doldurarak çökertemesin.
 const TOPLAM_SINIR = IOS ? 600 * 1024 ** 2 : 2 * 1024 ** 3;
 const EN_COK_ALINAN = 2; // dosyalar sırayla gönderildiği için normal kullanımda aşılmaz
+const EN_COK_SATIR = 1000; // listedeki gelen satırlar; boş dosyalarla sayfa şişirilemesin
+let listeDoluYazildi = false;
+const gelenSatirSayisi = () => $("aktarimlar").querySelectorAll('li[data-yon="gelen"]').length;
 let alinanSayisi = 0;
 let bellektekiBayt = 0;  // alınmakta olan ve bellekte tutulan dosyaların toplamı
 const bellekPayi = new Map(); // Kaydet bağlantısı -> bellekte tuttuğu bayt
 
 // Gelen dosya için yer ayırır ve satırını açar. Sınırı aşıyorsa nedeni yazar ve null döner.
 function alimaBasla(ad, boyut, oturum) {
+  if (gelenSatirSayisi() >= EN_COK_SATIR) {
+    if (!listeDoluYazildi) {
+      listeDoluYazildi = true;
+      satirEkle("gelen", ad, 0, oturum, false).hata("Alınmadı: Liste dolu. Biten aktarımları listeden kaldırın.");
+    }
+    return null;
+  }
+  listeDoluYazildi = false;
   if (!Number.isSafeInteger(boyut) || boyut < 0 || boyut > EN_BUYUK_DOSYA) {
     satirEkle("gelen", ad, 0, oturum, false).hata(`Alınmadı: Dosya ${boyutYaz(EN_BUYUK_DOSYA)} sınırını aşıyor`);
     return null;
@@ -671,6 +701,40 @@ function bellegiBirak(a) {
   }
 }
 
+// Gelen parçaları PARCA boyunda birleştirir: milyonlarca küçük parça, toplam sınırı dolmadan belleği
+// bitirmesin.
+function parcaBirikimi() {
+  const bloklar = [];
+  let tampon = null;
+  let dolu = 0;
+  return {
+    ekle(parca) {
+      if (!dolu && parca.length >= PARCA) {
+        bloklar.push(parca);
+        return;
+      }
+      for (let i = 0; i < parca.length;) {
+        tampon ??= new Uint8Array(PARCA);
+        const n = Math.min(PARCA - dolu, parca.length - i);
+        tampon.set(parca.subarray(i, i + n), dolu);
+        dolu += n;
+        i += n;
+        if (dolu === PARCA) {
+          bloklar.push(tampon);
+          tampon = null;
+          dolu = 0;
+        }
+      }
+    },
+    bitir() {
+      if (dolu) bloklar.push(tampon.slice(0, dolu));
+      tampon = null;
+      dolu = 0;
+      return bloklar;
+    },
+  };
+}
+
 async function dosyaAl(alici, baslik, ilk, oturum) {
   const ad = dosyaAdiDuzelt(baslik.ad);
   const boyut = baslik.boyut;
@@ -681,7 +745,8 @@ async function dosyaAl(alici, baslik, ilk, oturum) {
   }
   let oldu = false;
   try {
-    const parcalar = [ilk];
+    const parcalar = parcaBirikimi();
+    parcalar.ekle(ilk);
     let alinan = ilk.length;
     satir.ilerle(alinan, true);
     for (;;) {
@@ -689,14 +754,17 @@ async function dosyaAl(alici, baslik, ilk, oturum) {
         alici.iptal();
         throw new Error("Dosya beklenenden büyük geldi");
       }
-      const parca = await alici.oku();
+      const parca = await zamanAsimi(alici.oku(), BOSTA_SURESI).catch(e => {
+        alici.iptal();
+        throw e;
+      });
       if (!parca) break;
-      parcalar.push(parca);
+      parcalar.ekle(parca);
       alinan += parca.length;
       satir.ilerle(alinan);
     }
     if (alinan !== boyut) throw new Error("Dosya eksik geldi");
-    dosyaHazir(parcalar, ad, satir, boyut);
+    dosyaHazir(parcalar.bitir(), ad, satir, boyut);
     oldu = true;
   } catch (e) {
     console.error(e);
@@ -1026,13 +1094,51 @@ function rtcOlustur(oturum) {
   return pc;
 }
 
+// Adres karşılaştırması karşıya yuva (IPv4, IPv6) başına bir tahmin hakkı verir. Yeniden bağlanarak
+// adres aranamasın diye tutmayan karşılaştırma sekmede yuva başına saatte EN_COK_TAHMIN ile sınırlıdır.
+// Sınırdan sonra o yuvada rastgele değerle sürer: karşı taraf ayırt edemez, yalnız yerel adresler denenir.
+// Tutan karşılaştırma (aynı ağ) sayılmaz: karşı taraf o adresi zaten biliyordur.
+const TAHMIN_ARALIGI = 60 * 60000;
+const EN_COK_TAHMIN = 3;
+
+function tahminler(yuva) {
+  let liste = [];
+  try {
+    liste = JSON.parse(hafizaOku(`${TAHMIN_HAFIZASI}-${yuva}`) ?? "[]");
+  } catch {}
+  return Array.isArray(liste) ? liste.filter(t => Math.abs(Date.now() - t) < TAHMIN_ARALIGI) : [];
+}
+
+function karsilastirmaBaslat(oturum, pc, teklifEden) {
+  pc.tahmin = [];
+  const yuvalar = yuvaAnahtarlari(pc).map((anahtar, i) => {
+    if (!anahtar) return "";
+    const liste = tahminler(i);
+    if (liste.length >= EN_COK_TAHMIN) return "";
+    pc.tahmin[i] = Date.now();
+    hafizaYaz(`${TAHMIN_HAFIZASI}-${i}`, JSON.stringify([...liste, pc.tahmin[i]]));
+    return anahtar;
+  });
+  return oturum.baglanti.karsilastir(teklifEden, yuvalar[0], yuvalar[1]);
+}
+
+function tahminTuttu(pc, maske) {
+  for (const i of [0, 1]) {
+    if (!(maske & (1 << i)) || !pc.tahmin?.[i]) continue;
+    const liste = tahminler(i);
+    const sira = liste.indexOf(pc.tahmin[i]);
+    if (sira >= 0) liste.splice(sira, 1);
+    hafizaYaz(`${TAHMIN_HAFIZASI}-${i}`, JSON.stringify(liste));
+  }
+}
+
 async function dogrudanBaslat(oturum) {
   if (!DOGRUDAN_DESTEK || !oturum.karsiDogrudan || oturum.rol !== "teklif") return;
   try {
     const pc = rtcOlustur(oturum);
     await pc.setLocalDescription(await pc.createOffer());
     await adaylarHazir(pc);
-    pc.karsilastirma = oturum.baglanti.karsilastir(true, ...yuvaAnahtarlari(pc));
+    pc.karsilastirma = karsilastirmaBaslat(oturum, pc, true);
     await rtcGonder(oturum, { tur: "teklif", sdp: yalnizYerel(pc.localDescription.sdp), cpace: pc.karsilastirma.ileti() });
   } catch (e) {
     console.error(e);
@@ -1048,7 +1154,7 @@ async function rtcMesaji(oturum, baslik) {
       await pc.setRemoteDescription({ type: "offer", sdp: yalnizYerel(baslik.sdp) });
       await pc.setLocalDescription(await pc.createAnswer());
       await adaylarHazir(pc);
-      const k = oturum.baglanti.karsilastir(false, ...yuvaAnahtarlari(pc));
+      const k = karsilastirmaBaslat(oturum, pc, false);
       pc.karsilastirma = k;
       let etiket = null;
       try {
@@ -1064,6 +1170,7 @@ async function rtcMesaji(oturum, baslik) {
       try {
         const etiket = k.etiketler(baslik.cpace);
         pc.tutan = k.eslesenler(baslik.etiket);
+        tahminTuttu(pc, pc.tutan);
         await rtcGonder(oturum, { tur: "aday", etiket, adaylar: paylasilacaklar(pc, pc.tutan) });
       } finally {
         k.free();
@@ -1080,6 +1187,7 @@ async function rtcMesaji(oturum, baslik) {
         k.free();
       }
       if (!tutan) return;
+      tahminTuttu(pc, tutan);
       for (const a of adaylarSec(baslik.adaylar, tutanAnahtarlar(pc, tutan))) await pc.addIceCandidate(a);
       await rtcGonder(oturum, { tur: "aday", adaylar: paylasilacaklar(pc, tutan) });
     }
@@ -1139,7 +1247,7 @@ async function dogrudanGonder(pc, dosya, satir) {
       if (bas < dosya.size) sonraki = dosya.slice(bas, bas + PARCA).arrayBuffer();
       for (let i = 0; i < buyuk.length; i += DOGRUDAN_PARCA) {
         if (kapandi) await yanit;
-        if (kanal.bufferedAmount > DOGRUDAN_TAMPON) await tamponBosalsin(kanal);
+        if (kanal.bufferedAmount > DOGRUDAN_TAMPON) await zamanAsimi(tamponBosalsin(kanal), GONDERME_SURESI);
         if (kapandi) await yanit;
         kanal.send(buyuk.subarray(i, i + DOGRUDAN_PARCA));
       }
@@ -1163,19 +1271,27 @@ function dogrudanAl(kanal, oturum) {
   let boyut = 0;
   let alinan = 0;
   let bitti = false;
-  const parcalar = [];
+  let bosta;
+  const parcalar = parcaBirikimi();
   const yarida = () => {
     if (bitti) return;
     bitti = true;
+    clearTimeout(bosta);
     if (satir) {
       satir.hata("Aktarım yarıda kesildi");
       alimBitti(boyut, false);
     }
     kanal.close();
   };
+  const bostaSayaci = () => {
+    clearTimeout(bosta);
+    bosta = setTimeout(yarida, BOSTA_SURESI);
+  };
+  bostaSayaci();
   kanal.onmessage = e => {
     if (bitti) return;
     try {
+      bostaSayaci();
       if (!satir) {
         if (typeof e.data !== "string" || e.data.length > BASLIK_SINIRI) throw new Error("Geçersiz başlık");
         const baslik = JSON.parse(e.data);
@@ -1185,6 +1301,7 @@ function dogrudanAl(kanal, oturum) {
         satir = alimaBasla(ad, istenen, oturum);
         if (!satir) {
           bitti = true;
+          clearTimeout(bosta);
           kanal.send("buyuk");
           return;
         }
@@ -1193,17 +1310,23 @@ function dogrudanAl(kanal, oturum) {
       } else {
         if (typeof e.data === "string") throw new Error("Beklenmeyen ileti");
         const parca = new Uint8Array(e.data);
+        if (!parca.length) throw new Error("Boş parça");
         alinan += parca.length;
         if (alinan > boyut) throw new Error("Dosya beklenenden büyük geldi");
-        parcalar.push(parca);
+        parcalar.ekle(parca);
         satir.ilerle(alinan);
       }
       if (alinan === boyut) {
-        bitti = true;
         satir.ilerle(alinan, true);
-        kanal.send("tamam");
-        dosyaHazir(parcalar, ad, satir, boyut);
+        dosyaHazir(parcalar.bitir(), ad, satir, boyut);
+        bitti = true;
+        clearTimeout(bosta);
         alimBitti(boyut, true);
+        try {
+          kanal.send("tamam");
+        } catch (err) {
+          console.error(err); // dosya alındı; yanıtın gidememesi alım yerini tutmasın
+        }
       }
     } catch (err) {
       console.error(err);
@@ -1525,7 +1648,7 @@ async function gelenBaglanti(gelen, d) {
     const tanidik = !kodla && karsiKimlik === hafizaOku(KARSI_HAFIZASI);
     // QR'daki değer eşleştiği anda, araya bir bekleme girmeden tüketilir: aynı değerle gelen
     // ikinci bir istek onu kullanamaz.
-    const qrIle = !kodla && typeof baslik.sir === "string" && baslik.sir === qrSirri();
+    const qrIle = !kodla && typeof baslik.sir === "string" && qrGecerli(baslik.sir);
     if (qrIle) qrYenile();
     if (!kodla && !qrIle && !tanidik) {
       baglanti.kapat(REDDEDILDI);
@@ -1546,7 +1669,7 @@ async function gelenBaglanti(gelen, d) {
         baglanti.kapat(ESKI);
         return;
       }
-      if (kodla && (d !== kodDugumu || ++kodDenemesi > KOD_EN_COK_DENEME)) {
+      if (kodla && (d !== kodDugumu || Date.now() >= kodBitis || ++kodDenemesi > KOD_EN_COK_DENEME)) {
         baglanti.kapat(REDDEDILDI);
         return;
       }
@@ -1726,11 +1849,12 @@ async function kurIc(bilet, ms, sir, gecis, iz) {
     // (birden çok olası bilet) asıl adres zorunludur.
     const yeniden = adresGecerli(sonuc.adres) ? sonuc.adres : Array.isArray(bilet) ? null : bilet;
     if (!yeniden) throw new Error("Asıl adres gelmedi");
-    hafizaYaz(BILET_HAFIZASI, yeniden);
+    if (Array.isArray(bilet) || yeniden.split("~")[0] === baglanti.karsi_kimlik()) hafizaYaz(BILET_HAFIZASI, yeniden);
     if (yeniden.split("~")[0] !== baglanti.karsi_kimlik()) {
       // Kodla eşleşme kabul edildi: koddan türetilen adresten karşının asıl adresine geçilir.
-      // Koddan türetilen kimlik hiçbir yerde "tanıdık" olarak saklanmaz.
-      if (gecis) throw new Error("Asıl adrese geçilemedi");
+      // Koddan türetilen kimlik hiçbir yerde "tanıdık" olarak saklanmaz. Kimlik yalnız kodla
+      // bağlanmada (bilet bir liste) değişebilir: QR'daki anahtarın sahibi başka cihaza yönlendiremez.
+      if (gecis || !Array.isArray(bilet)) throw new Error("Asıl adrese geçilemedi");
       baglanti.kapat(GECIS);
       durumYaz("Bağlanılıyor…");
       return kur(yeniden, ms, undefined, true, iz);
@@ -1968,7 +2092,7 @@ function qrGoster() {
   qr.addData(adres);
   qr.make();
   $("qr-resim").innerHTML = qr.createSvgTag({ cellSize: 4, margin: 2, scalable: true });
-  qrBitis = Date.now() + QR_SURESI;
+  qrBitis = qrBitisAni() || Date.now() + QR_SURESI;
   surelerGuncelle();
   const dugme = $("adres-kopyala");
   dugme.dataset.adres = adres;
