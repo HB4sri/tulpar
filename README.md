@@ -15,7 +15,7 @@ Tulpar ücretsiz ve reklamsız, kişisel bir projedir. Ticari bir hizmet değild
 
 1. Bir cihazda sayfayı açın; ekranda bir QR kod çıkar.
 2. Diğer cihazın kamerasıyla QR kodu okutun ya da "Kod göster" ile 8 karakterlik kodu alıp diğer cihaza yazın.
-3. İki ekrandaki **doğrulama kodunun** aynı olduğunu kontrol edin.
+3. İki ekrandaki **doğrulama kodu** aynıysa iki cihazda da onaylayın.
 4. Dosyaları iki yönde de gönderebilirsiniz. Gelen dosya "Kaydet" ile indirilir.
 
 ## Dosyalar nereden geçer?
