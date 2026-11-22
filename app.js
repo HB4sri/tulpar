@@ -18,7 +18,7 @@ const pkgAdresi = ad => new URL(`./pkg/${ad}?v=${SURUM}`, import.meta.url).href;
 const { default: init, Dugum } = await import(pkgAdresi("tulpar_cekirdek.js"));
 
 // Her akış bir çerçeveyle başlar: [4 bayt başlık uzunluğu][JSON başlık], ardından varsa içerik.
-// Dosya başlığı: { ad, boyut }. Tanışma başlığı: { tip: "tanitim", ad, sir?, adres?, taahhut? }.
+// Dosya başlığı: { ad, boyut }. Tanışma başlığı: { tip: "tanitim", ad, sir?, adres?, taahhut?, bekle?, hazir? }.
 // Doğrulama değeri: { tip: "dogrulama", deger } (bk. "Doğrulama kodu"). Bu ikisinde içerik yok.
 const PARCA = 256 * 1024;
 const BASLIK_SINIRI = 16 * 1024;
@@ -61,7 +61,7 @@ let qrBitis = 0;
 let kodBitis = 0;
 let onayBitis = 0;
 let kodKullanildi = false;
-let mevcut = null; // { baglanti, ad, karsiKimlik, yeniden, dugum }
+let mevcut = null; // { baglanti, ad, karsiKimlik, yeniden, dugum, onayli, karsiBekliyor } (bk. "Kod onayı")
 let bilerekKesildi = false;
 let bekleyenOnay = null;
 let bekleyenBaglanti = 0;
@@ -70,6 +70,7 @@ let bekleyenBaglanti = 0;
 // etkin bağlantı olamaz. `aramaNo`, kullanıcının başlattığı her bağlanmayla artar: eskisi geçersizdir.
 let nesil = 0;
 let aramaNo = 0;
+let kodOnayZamani = null;
 const elSikismalar = new Set(); // tamamlanmamış bağlantılar; "Bağlantıyı kes" hepsini kapatır
 const engellenenler = new Map(); // kimlik -> engelin bittiği zaman
 const kaydedilmemis = new Set(); // alınmış ama henüz kaydedilmemiş dosyaların bağlantıları
@@ -85,6 +86,7 @@ const SIR_HAFIZASI = "tulpar-sir";
 const BILET_HAFIZASI = "tulpar-bilet";
 const KARSI_HAFIZASI = "tulpar-karsi";
 const ONAY_HAFIZASI = "tulpar-onay";
+const DOGRULANAN_HAFIZASI = "tulpar-dogrulanan"; // kodu bu cihazda onaylanmış karşı kimlik
 
 function hafizaOku(ad) {
   try { return sessionStorage.getItem(ad); } catch { return null; }
@@ -129,7 +131,7 @@ function baskaSekmedeMi(no) {
 
 async function sekmeyiHazirla() {
   if (await baskaSekmedeMi(sekmeNo)) {
-    hafizaSil(ANAHTAR_HAFIZASI, SIR_HAFIZASI, BILET_HAFIZASI, KARSI_HAFIZASI, ONAY_HAFIZASI);
+    hafizaSil(ANAHTAR_HAFIZASI, SIR_HAFIZASI, BILET_HAFIZASI, KARSI_HAFIZASI, ONAY_HAFIZASI, DOGRULANAN_HAFIZASI);
     sekmeNo = null;
   }
   if (!sekmeNo) {
@@ -202,7 +204,7 @@ async function kimlikYenile() {
       dugum = yeni;
       nesil++;
       hafizaYaz(ANAHTAR_HAFIZASI, onaltilik(anahtar));
-      hafizaSil(KARSI_HAFIZASI, ONAY_HAFIZASI);
+      hafizaSil(KARSI_HAFIZASI, ONAY_HAFIZASI, DOGRULANAN_HAFIZASI);
       gelenleriBekle(yeni);
       eski.kapat();
     }
@@ -542,6 +544,14 @@ async function dosyaGonder(dosya, hedef) {
   satir.yaz("Hazırlanıyor…");
   aktarimBasladi();
   try {
+    if (!oturum.hazirOldu) {
+      // Akışa yazılan veri, karşı taraf okumasa da taşıma katmanında "ulaştı" sayılır; onaydan önce
+      // gönderilseydi satırda yanlışlıkla "Gönderildi" yazardı.
+      satir.yaz("Diğer cihazın onayı bekleniyor…");
+      if (!(await oturum.hazir)) throw new Error("Bağlantı onaylanmadan kapandı");
+      satir.yaz("Hazırlanıyor…");
+      await dogrudanBekle(oturum);
+    }
     if (oturum.dogrudan) {
       try {
         await dogrudanGonder(oturum.dogrudan, dosya, satir);
@@ -586,7 +596,15 @@ async function irohGonder(oturum, dosya, satir) {
   await gonderici.bitir();
 }
 
-const simdikiHedef = () => mevcut && { karsiKimlik: mevcut.karsiKimlik, ad: mevcut.ad };
+// Doğrudan yol onayla birlikte denenmeye başlar. Onay beklemiş dosya hemen çıkarsa aynı ağda bile
+// aktarma sunucusundan giderdi; kısa bir süre o yolun kurulması beklenir.
+async function dogrudanBekle(oturum) {
+  if (!DOGRUDAN_DESTEK || !oturum.karsiDogrudan) return;
+  const son = Date.now() + DOGRUDAN_BEKLEME;
+  while (!oturum.dogrudan && mevcut === oturum && oturum.pc?.signalingState !== "closed" && Date.now() < son) await bekle(100);
+}
+
+const simdikiHedef = () => (mevcut?.onayli ? { karsiKimlik: mevcut.karsiKimlik, ad: mevcut.ad } : null);
 
 function dosyalariSirala(dosyalar, hedef) {
   if (!hedef) return;
@@ -777,9 +795,13 @@ async function almaDongusu(oturum) {
       if (baslik.tip === "rtc") {
         rtcMesaji(oturum, baslik);
       } else if (baslik.tip === "tanitim") {
-        // Karşı taraf adını değiştirdi.
+        // Karşı taraf adını değiştirdi ya da kodları onayladı (hazir).
         oturum.ad = adDuzelt(baslik.ad);
         adlariGuncelle(oturum);
+        if (baslik.hazir === 1 && oturum.karsiBekliyor) {
+          oturum.karsiBekliyor = false;
+          hazirOl(oturum);
+        }
         if (mevcut === oturum) bagliYaz(oturum);
       } else {
         dosyaAl(alici, baslik, ilk, oturum);
@@ -813,6 +835,7 @@ async function almaDongusu(oturum) {
 // Her iki taraf da karşıdan yalnız tutan yuvadaki kendi anahtarıyla birebir aynı adresleri alır.
 const DOGRUDAN_DESTEK = typeof RTCPeerConnection === "function";
 const STUN = [{ urls: "stun:stun.cloudflare.com:3478" }];
+const DOGRUDAN_BEKLEME = 8000;          // onay beklemiş dosya doğrudan yolu en çok bu kadar bekler
 const DOGRUDAN_SURESI = 15000;          // bu sürede kurulamazsa denemekten vazgeçilir
 const DOGRUDAN_PARCA = 64 * 1024;       // bütün tarayıcıların kabul ettiği ileti boyutu
 const DOGRUDAN_TAMPON = 8 * 1024 ** 2;  // gönderim tamponu bunu aşınca boşalması beklenir (Chrome 16 MB üstünü kabul etmez)
@@ -1271,7 +1294,63 @@ function adlariGuncelle(oturum) {
 }
 
 function bagliYaz(oturum) {
-  durumYaz(`Bağlandı: ${oturum.ad}. Dosyaları iki yönde de gönderebilirsiniz.`, "tamam");
+  const ek = !oturum.onayli ? ""
+    : oturum.karsiBekliyor ? " Diğer cihazın onayı bekleniyor…"
+    : " Dosyaları iki yönde de gönderebilirsiniz.";
+  durumYaz(`Bağlandı: ${oturum.ad}.${ek}`, "tamam");
+}
+
+// --- Kod onayı ---
+//
+// Bağlantıyı kabul eden taraf kodu "Kabul et" sorusunda görür. Sorulmadan bağlanan taraf (QR'ı
+// okutan, kodu yazan ya da tanıdık diye sorusuz kabul eden) kodu burada onaylar; değiştirilmiş bir
+// QR ya da bağlantı dosyayı yanlış cihaza götüremesin. Onaya kadar (onayli = false):
+// - karşının açtığı akışlar okunmaz (almaDongusu başlamaz), dosya seçilemez;
+// - doğrudan bağlantı denenmez, yani adres bilgisi karşıya gitmez;
+// - karşı taraf tanışmadaki `bekle` ile bekletilir, onayda `hazir` gönderilir. `hazir` tanışma
+//   mesajıdır: v1.3.7 ve öncesi onu ad değişikliği sayar.
+// Onay karşının kimliğine (açık anahtarına) bağlıdır; kes'e ya da kimlik değişimine kadar sürer.
+// Yalnız "tanıdık" olmak yetmez: onaylanmadan bağlanılan cihaz da tanıdık olur ve ters yönden gelebilir.
+const onayliMi = karsiKimlik => hafizaOku(DOGRULANAN_HAFIZASI) === karsiKimlik;
+
+// İki taraf da hazırsa bekleyen dosyalar gider ve doğrudan bağlantı denenir.
+function hazirOl(oturum) {
+  if (!oturum.onayli || oturum.karsiBekliyor || oturum.hazirOldu) return;
+  oturum.hazirOldu = true;
+  oturum.hazirCoz(true);
+  dogrudanBaslat(oturum);
+}
+
+function oturumuBaslat(oturum) {
+  almaDongusu(oturum);
+  hazirOl(oturum);
+}
+
+function koduOnayla(oturum) {
+  if (mevcut !== oturum || oturum.onayli) return;
+  oturum.onayli = true;
+  hafizaYaz(DOGRULANAN_HAFIZASI, oturum.karsiKimlik);
+  tanitimGonder(oturum.baglanti, { hazir: 1 }).catch(e => {
+    console.error(e);
+    oturum.baglanti.kapat(KAPANDI); // yeniden bağlanınca bir daha sorulmaz
+  });
+  kodOnayiGoster(oturum);
+  bagliYaz(oturum);
+  oturumuBaslat(oturum);
+}
+
+// Onaylanmamış bağlantıda soru, onaylanmışta paylaşım bölümü görünür.
+function kodOnayiGoster(oturum) {
+  $("kod-onay").hidden = oturum.onayli;
+  $("paylasim").hidden = !oturum.onayli;
+  $("kes").hidden = !oturum.onayli;
+  if (oturum.onayli) return;
+  // Soru birden belirir; yanlışlıkla dokunulmasın diye "Kodlar aynı" kısa bir süre basılamaz.
+  const dugme = $("kod-onay-kabul");
+  dugme.disabled = true;
+  dugme.onclick = () => koduOnayla(oturum);
+  clearTimeout(kodOnayZamani);
+  kodOnayZamani = setTimeout(() => { if (mevcut === oturum) dugme.disabled = false; }, 1000);
 }
 
 // Bağlantı yokken gösterilen bölümler: QR ve kod alanı (yeni bir eşleşme için) ve verilmişse
@@ -1295,6 +1374,8 @@ function baglandi(oturum) {
   // başka bir cihaz kabul edildiyse eski cihaz geri bağlanmaya çalışmaz.
   if (mevcut) mevcut.baglanti.kapat(mevcut.karsiKimlik === oturum.karsiKimlik ? YENILENDI : DEGISTI);
   mevcut = oturum;
+  oturum.hazirOldu = false;
+  oturum.hazir = new Promise(coz => { oturum.hazirCoz = coz; });
   bilerekKesildi = false;
   hafizaYaz(KARSI_HAFIZASI, oturum.karsiKimlik);
   // QR'daki tek kullanımlık değer, bağlantı nasıl kurulursa kurulsun yenilenir: bağlıyken ekranda
@@ -1308,14 +1389,13 @@ function baglandi(oturum) {
   bagliYaz(oturum);
   $("baglan").hidden = true;
   $("yeniden").hidden = true;
-  $("paylasim").hidden = false;
-  $("kes").hidden = false;
+  kodOnayiGoster(oturum);
   $("dogrulama-kodu").textContent = oturum.kod;
   $("dogrulama").hidden = false;
-  almaDongusu(oturum);
   yolYaz(oturum);
-  dogrudanBaslat(oturum);
+  if (oturum.onayli) oturumuBaslat(oturum);
   oturum.baglanti.kapanis().then(neden => {
+    oturum.hazirCoz(false); // hazır olduysa etkisizdir
     // Kod uç noktası tek kullanımlıktır; onun üzerindeki oturum bitince kapatılır.
     if (oturum.dugum && oturum.dugum !== dugum) {
       if (oturum.dugum === kodDugumu) kodDugumu = null;
@@ -1323,6 +1403,7 @@ function baglandi(oturum) {
     }
     if (mevcut !== oturum) return;
     mevcut = null;
+    $("kod-onay").hidden = true;
     sonBaglantiBitisi = Date.now();
     $("yol").hidden = true;
     const yeniden = oturum.yeniden ?? tumRelaylerle(`${oturum.karsiKimlik}~`);
@@ -1511,10 +1592,11 @@ async function gelenBaglanti(gelen, d) {
       kodKullanildi = true;
       koduGizle();
     }
+    const onayli = sor || onayliMi(karsiKimlik);
     // Kodla eşleşmede karşı taraf bu bağlantıyı kapatıp bu sekmenin rastgele anahtarlı asıl
     // adresine yeniden bağlanır; koddan türetilen adres bir daha kullanılmaz.
     try {
-      await tanitimGonder(baglanti, { adres: dugum.bilet() });
+      await tanitimGonder(baglanti, { adres: dugum.bilet(), ...(onayli ? {} : { bekle: 1 }) });
     } catch (e) {
       console.error(e);
       baglanti.kapat(KAPANDI);
@@ -1526,7 +1608,11 @@ async function gelenBaglanti(gelen, d) {
     }
     // "Onay gerekli" bağlantı gerçekten kurulunca kalkar; yarım kalan bir kabul kapıyı açık bırakmaz.
     onayGerekliYap(false);
-    baglandi({ baglanti, ad, karsiKimlik, kod, yeniden: null, dugum: d, rol: "yanit", karsiDogrudan: baslik.dogrudan === 1 });
+    if (sor) hafizaYaz(DOGRULANAN_HAFIZASI, karsiKimlik); // "Kabul et" kodla birlikte soruldu
+    baglandi({
+      baglanti, ad, karsiKimlik, kod, yeniden: null, dugum: d, rol: "yanit", karsiDogrudan: baslik.dogrudan === 1,
+      onayli, karsiBekliyor: baslik.bekle === 1,
+    });
   } catch (e) {
     console.error(e);
     baglanti?.kapat(KAPANDI);
@@ -1605,7 +1691,9 @@ async function kurIc(bilet, ms, sir, gecis, iz) {
       return "gecersiz";
     }
     const benimDeger = rastgeleDeger();
-    await tanitimGonder(baglanti, { ...(sir ? { sir } : {}), taahhut: await taahhut(benimDeger) });
+    const onayli = onayliMi(baglanti.karsi_kimlik());
+    const ek = { ...(sir ? { sir } : {}), ...(onayli ? {} : { bekle: 1 }) };
+    await tanitimGonder(baglanti, { ...ek, taahhut: await taahhut(benimDeger) });
     if (!gecersiz()) durumYaz("Diğer cihazın onayı bekleniyor…");
     let kod;
     const sonuc = await zamanAsimi((async () => {
@@ -1647,7 +1735,10 @@ async function kurIc(bilet, ms, sir, gecis, iz) {
       durumYaz("Bağlanılıyor…");
       return kur(yeniden, ms, undefined, true, iz);
     }
-    baglandi({ baglanti, ad: adDuzelt(sonuc.ad), karsiKimlik: baglanti.karsi_kimlik(), kod, yeniden, dugum: null, rol: "teklif", karsiDogrudan: sonuc.dogrudan === 1 });
+    baglandi({
+      baglanti, ad: adDuzelt(sonuc.ad), karsiKimlik: baglanti.karsi_kimlik(), kod, yeniden, dugum: null, rol: "teklif", karsiDogrudan: sonuc.dogrudan === 1,
+      onayli, karsiBekliyor: sonuc.bekle === 1,
+    });
     return "tamam";
   } catch (e) {
     baglanti.kapat(KAPANDI);
@@ -2036,12 +2127,13 @@ $("kes").onclick = () => {
   bilerekKesildi = true;
   nesil++;
   onayGerekliYap(true);
-  hafizaSil(BILET_HAFIZASI);
+  hafizaSil(BILET_HAFIZASI, DOGRULANAN_HAFIZASI);
   qrYenile();
   mevcut?.baglanti.kapat(KESILDI);
   for (const baglanti of elSikismalar) baglanti.kapat(REDDEDILDI);
   koduBirak();
 };
+$("kod-onay-kes").onclick = () => $("kes").onclick();
 
 // Biten bir aktarımı listeden siler ve alınan dosyanın bellekteki kopyasını bırakır.
 function satiriSil(li) {
@@ -2076,9 +2168,9 @@ addEventListener("pagehide", () => mevcut?.baglanti.kapat(KAPANDI));
 
 // --- Adım göstergesi ve alt bilgi ---
 
-// Adım, görünen bölümlerden çıkarılır: onay sorusu açıksa 2, bağlıysa 3, değilse 1.
+// Adım, görünen bölümlerden çıkarılır: onay ya da kod sorusu açıksa 2, bağlıysa 3, değilse 1.
 function adimGuncelle() {
-  const adim = !$("paylasim").hidden ? 3 : !$("onay").hidden ? 2 : 1;
+  const adim = !$("paylasim").hidden ? 3 : !$("onay").hidden || !$("kod-onay").hidden ? 2 : 1;
   $("adimlar").querySelectorAll("li").forEach((li, i) => {
     li.classList.toggle("etkin", i + 1 === adim);
     li.classList.toggle("bitti", i + 1 < adim);
@@ -2087,7 +2179,7 @@ function adimGuncelle() {
   });
 }
 const adimGozcusu = new MutationObserver(adimGuncelle);
-for (const id of ["paylasim", "onay"]) adimGozcusu.observe($(id), { attributes: true, attributeFilter: ["hidden"] });
+for (const id of ["paylasim", "onay", "kod-onay"]) adimGozcusu.observe($(id), { attributes: true, attributeFilter: ["hidden"] });
 adimGuncelle();
 
 // Sürüm numarası yayında package.json'dan yazılır (ör. 1.0.0); yerelde "geliştirme" yazar.

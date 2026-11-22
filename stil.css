@@ -103,8 +103,8 @@ main .kap:has(> #paylasim:not([hidden])) { max-width: 760px; }
 #dogrulama-kodu { font: 600 2rem/1.1 ui-monospace, "SF Mono", Consolas, monospace; letter-spacing: .08em; font-variant-numeric: tabular-nums; }
 
 /* Onay */
-#onay { padding: 22px; border-color: var(--vurgu); box-shadow: 0 0 0 3px var(--vurgu-hafif); display: flex; flex-direction: column; gap: 8px; }
-#onay-metin { font-weight: 700; font-size: 1.125rem; overflow-wrap: anywhere; }
+#onay, #kod-onay { padding: 22px; border-color: var(--vurgu); box-shadow: 0 0 0 3px var(--vurgu-hafif); display: flex; flex-direction: column; gap: 8px; }
+#onay-metin, #kod-onay-baslik { font-weight: 700; font-size: 1.125rem; overflow-wrap: anywhere; }
 #onay-kod { font: 600 1.125rem ui-monospace, "SF Mono", Consolas, monospace; color: var(--yazi); letter-spacing: .08em; }
 .onay-ek { overflow-wrap: anywhere; }
 .onay-dugmeler { display: flex; gap: 10px; margin-top: 8px; flex-wrap: wrap; }
@@ -274,7 +274,7 @@ a.logo { color: inherit; text-decoration: none; }
 .uygulama :is(input, #kod, #onay-kod, #dogrulama-kodu) { -webkit-user-select: text; user-select: text; }
 .uygulama main { padding-bottom: calc(40px + var(--uygulama-alt, 0px)); }
 .uygulama :is(#cihaz-adi, button.bag, #adimlar i, #adimlar li.etkin, #durum.tamam, #durum.hata, button,
-  #onay-metin, #kod-formu label, .liste-ust h2, .ad, #aktarimlar .not, li.tamam .metin, li.hata .metin) { font-weight: 500; }
+  #onay-metin, #kod-onay-baslik, #kod-formu label, .liste-ust h2, .ad, #aktarimlar .not, li.tamam .metin, li.hata .metin) { font-weight: 500; }
 .uygulama .bilgi button.kaydet {
   display: inline-flex; align-items: center; min-height: 32px; padding: 0 16px;
   background: var(--vurgu); color: var(--vurgu-ustu); border: 0; font-weight: 600;
